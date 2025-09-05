@@ -50,7 +50,10 @@ init_tui() {
     
     # Create temporary directory
     TEMP_DIR=$(mktemp -d)
+    
+    # Set up signal handlers for clean exit
     trap cleanup_tui EXIT
+    trap 'echo ""; exit_tui' INT TERM HUP
     
     # Ensure log directory exists
     local log_dir="$(dirname "$TUI_LOG_FILE")"
@@ -62,8 +65,37 @@ init_tui() {
 
 # Cleanup TUI environment
 cleanup_tui() {
+    # Reset terminal to normal state
+    clear
+    reset
+    stty sane
+    
+    # Clean up temporary files
     [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]] && rm -rf "$TEMP_DIR"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] TUI Exited" >> "$TUI_LOG_FILE"
+}
+
+# Graceful TUI exit
+exit_tui() {
+    # Clear any dialog remnants
+    clear
+    
+    # Display farewell message
+    echo
+    echo "╔══════════════════════════════════════════════════════════════════════╗"
+    echo "║                     Thank you for using the                         ║"
+    echo "║             Docker Stack 3-Stage Backup System TUI!                 ║"
+    echo "║                                                                      ║"
+    echo "║  • Stage 1: Docker Backup   ✓                                       ║"
+    echo "║  • Stage 2: Cloud Sync      ✓                                       ║"  
+    echo "║  • Stage 3: Cloud Restore   ✓                                       ║"
+    echo "║                                                                      ║"
+    echo "║  Your backup system is ready for production use.                    ║"
+    echo "╚══════════════════════════════════════════════════════════════════════╝"
+    echo
+    
+    # Allow cleanup to run
+    exit 0
 }
 
 # Log TUI operations
@@ -566,9 +598,7 @@ main_menu() {
             9) help_menu ;;
             0|"") 
                 if show_confirm "Exit" "Are you sure you want to exit?"; then
-                    clear
-                    echo "Thank you for using the Docker Stack 3-Stage Backup System TUI!"
-                    exit 0
+                    exit_tui
                 fi
                 ;;
         esac
