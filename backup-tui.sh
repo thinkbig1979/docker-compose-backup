@@ -635,7 +635,7 @@ stage1_docker_backup_menu() {
             4) list_recent_backups ;;
             5) verify_backup ;;
             6) view_backup_status ;;
-            7) manage_directories ;;
+            7) directory_management ;;
             8) configure_backup_settings ;;
             9) backup_troubleshooting ;;
             0|"") break ;;
@@ -1082,26 +1082,10 @@ check_repository_status() {
     fi
 }
 
-# Manage directories
+# Legacy manage directories function (kept for compatibility)
 manage_directories() {
-    log_tui "Opening directory management"
-    
-    if [[ -f "$MANAGE_DIRLIST_SCRIPT" && -x "$MANAGE_DIRLIST_SCRIPT" ]]; then
-        if show_confirm "Directory Management" "Open directory list management interface?\n\nThis will allow you to:\n• Enable/disable directories for backup\n• View directory status\n• Scan for new directories\n\nContinue?"; then
-            # Temporarily exit dialog mode
-            clear
-            echo "Opening directory management interface..."
-            echo "Press any key to continue..."
-            read -n 1
-            
-            "$MANAGE_DIRLIST_SCRIPT"
-            
-            # Return to dialog mode
-            show_info "Directory Management" "Directory management completed.\n\nChanges will take effect on next backup run."
-        fi
-    else
-        show_error "Directory Management Unavailable" "Directory management script not found or not executable.\n\nFile: $MANAGE_DIRLIST_SCRIPT\n\nPlease check your installation."
-    fi
+    # Redirect to new integrated directory management
+    directory_management
 }
 
 # Configure backup settings
@@ -2036,8 +2020,2116 @@ disaster_recovery_wizard() {
     show_info "Feature Coming Soon" "Disaster recovery wizard will be available in the next version."
 }
 
+#######################################
+# Directory List Management System
+#######################################
+
+# Global variables for directory management
+BACKUP_DIR=""
+DISCOVERED_DIRS=()
+declare -A EXISTING_DIRLIST
+REMOVED_DIRS=()
+NEW_DIRS=()
+CHANGES_DETECTED="false"
+CHECKLIST_OPTIONS=()
+
+# Load configuration to get BACKUP_DIR for directory management
+load_config_for_dirlist() {
+    if [[ ! -f "$BACKUP_CONFIG" ]]; then
+        show_error "Configuration Missing" "Configuration file not found: $BACKUP_CONFIG\n\nPlease configure docker backup first."
+        return 1
+    fi
+    
+    # Read configuration file and extract BACKUP_DIR
+    local config_content
+    config_content="$(grep -v '^[[:space:]]*#' "$BACKUP_CONFIG" | grep -v '^[[:space:]]*$' | head -20)"
+    
+    if [[ -z "$config_content" ]]; then
+        show_error "Invalid Configuration" "No valid configuration found in: $BACKUP_CONFIG"
+        return 1
+    fi
+    
+    # Parse BACKUP_DIR from configuration
+    while IFS='=' read -r key value; do
+        # Strip inline comments and whitespace from value
+        value="$(echo "$value" | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        
+        if [[ "$key" == "BACKUP_DIR" ]]; then
+            BACKUP_DIR="$(echo "$value" | sed 's/^[\"'\'']\|[\"'\'']$//g')"
+            break
+        fi
+    done <<< "$config_content"
+    
+    if [[ -z "$BACKUP_DIR" ]]; then
+        show_error "Configuration Error" "BACKUP_DIR not found in configuration file."
+        return 1
+    fi
+    
+    if [[ ! -d "$BACKUP_DIR" ]]; then
+        show_error "Directory Not Found" "Backup directory does not exist: $BACKUP_DIR"
+        return 1
+    fi
+    
+    log_tui "Using backup directory: $BACKUP_DIR"
+    return 0
+}
+
+# Discover Docker compose directories for TUI
+discover_directories_tui() {
+    local found_dirs=()
+    local dir_count=0
+    
+    log_tui "Scanning for Docker compose directories in: $BACKUP_DIR"
+    
+    # Check if backup directory exists
+    if [[ ! -d "$BACKUP_DIR" ]]; then
+        show_error "Directory Error" "Backup directory does not exist: $BACKUP_DIR"
+        return 1
+    fi
+    
+    # Find all top-level subdirectories containing docker-compose files
+    for dir in "$BACKUP_DIR"/*; do
+        # Skip if not a directory
+        [[ -d "$dir" ]] || continue
+        
+        local dir_name
+        dir_name="$(basename "$dir")"
+        
+        # Skip hidden directories
+        if [[ "$dir_name" =~ ^\..*$ ]]; then
+            continue
+        fi
+        
+        # Check if directory contains docker-compose files
+        if [[ -f "$dir/docker-compose.yml" ]] || [[ -f "$dir/docker-compose.yaml" ]] || [[ -f "$dir/compose.yml" ]] || [[ -f "$dir/compose.yaml" ]]; then
+            found_dirs+=("$dir_name")
+            ((dir_count++))
+        fi
+    done
+    
+    log_tui "Found $dir_count Docker compose directories"
+    
+    # Store results in global variable
+    DISCOVERED_DIRS=("${found_dirs[@]}")
+    
+    if [[ $dir_count -eq 0 ]]; then
+        show_error "No Directories Found" "No Docker compose directories found in: $BACKUP_DIR\n\nMake sure your Docker compose files are named:\n• docker-compose.yml\n• docker-compose.yaml\n• compose.yml\n• compose.yaml"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Load existing .dirlist file for TUI
+load_dirlist_tui() {
+    local dirlist_file="$SCRIPT_DIR/dirlist"
+    
+    # Clear existing dirlist
+    unset EXISTING_DIRLIST
+    declare -gA EXISTING_DIRLIST
+    
+    if [[ ! -f "$dirlist_file" ]]; then
+        log_tui "Directory list file not found: $dirlist_file"
+        log_tui "Will create new .dirlist file based on discovered directories"
+        return 1
+    fi
+    
+    log_tui "Loading existing directory list from: $dirlist_file"
+    
+    # Read the dirlist file and populate the associative array
+    while IFS='=' read -r dir_name enabled; do
+        # Skip comments and empty lines
+        if [[ "$dir_name" =~ ^#.*$ ]] || [[ -z "$dir_name" ]]; then
+            continue
+        fi
+        
+        # Validate format
+        if [[ "$enabled" =~ ^(true|false)$ ]]; then
+            EXISTING_DIRLIST["$dir_name"]="$enabled"
+        fi
+    done < "$dirlist_file"
+    
+    return 0
+}
+
+# Validate dirlist file format
+validate_dirlist_format() {
+    local dirlist_file="$SCRIPT_DIR/dirlist"
+    local issues=0
+    local temp_report="$TEMP_DIR/dirlist_validation.txt"
+    
+    if [[ ! -f "$dirlist_file" ]]; then
+        echo "Directory list file not found: $dirlist_file" > "$temp_report"
+        return 1
+    fi
+    
+    echo "DIRECTORY LIST VALIDATION REPORT" > "$temp_report"
+    echo "=================================" >> "$temp_report"
+    echo "" >> "$temp_report"
+    echo "File: $dirlist_file" >> "$temp_report"
+    echo "Generated: $(date)" >> "$temp_report"
+    echo "" >> "$temp_report"
+    
+    local line_num=0
+    while IFS= read -r line; do
+        ((line_num++))
+        
+        # Skip empty lines and comments
+        if [[ -z "$line" ]] || [[ "$line" =~ ^[[:space:]]*# ]]; then
+            continue
+        fi
+        
+        # Check format: directory_name=true|false
+        if [[ "$line" =~ ^[^=]+=(true|false)$ ]]; then
+            local dir_name="${line%%=*}"
+            local enabled="${line##*=}"
+            echo "✓ Line $line_num: Valid format - $dir_name=$enabled" >> "$temp_report"
+        else
+            echo "✗ Line $line_num: Invalid format - $line" >> "$temp_report"
+            ((issues++))
+        fi
+    done < "$dirlist_file"
+    
+    echo "" >> "$temp_report"
+    if [[ $issues -eq 0 ]]; then
+        echo "✓ VALIDATION PASSED: No format issues found" >> "$temp_report"
+    else
+        echo "⚠ VALIDATION FAILED: $issues format issue(s) found" >> "$temp_report"
+    fi
+    
+    dialog --title "Directory List Validation" \
+           --textbox "$temp_report" \
+           $DIALOG_HEIGHT $DIALOG_WIDTH
+    
+    return $issues
+}
+
+# View comprehensive directory status
+view_directory_status_tui() {
+    log_tui "Generating directory status report"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    if ! discover_directories_tui; then
+        return
+    fi
+    
+    # Load existing dirlist
+    load_dirlist_tui || true
+    
+    local status_file="$TEMP_DIR/directory_status.txt"
+    
+    cat > "$status_file" << EOF
+DIRECTORY STATUS REPORT
+=======================
+
+Generated: $(date)
+Backup Directory: $BACKUP_DIR
+Total Discovered: ${#DISCOVERED_DIRS[@]}
+
+EOF
+    
+    # Directory status summary
+    local enabled_count=0
+    local disabled_count=0
+    local new_count=0
+    local missing_count=0
+    
+    # Count existing dirlist entries
+    for dir in "${!EXISTING_DIRLIST[@]}"; do
+        if [[ "${EXISTING_DIRLIST[$dir]}" == "true" ]]; then
+            ((enabled_count++))
+        else
+            ((disabled_count++))
+        fi
+    done
+    
+    # Check for new directories not in dirlist
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        if [[ -z "${EXISTING_DIRLIST[$dir]:-}" ]]; then
+            ((new_count++))
+        fi
+    done
+    
+    # Check for missing directories (in dirlist but not discovered)
+    for dir in "${!EXISTING_DIRLIST[@]}"; do
+        local found=false
+        for discovered_dir in "${DISCOVERED_DIRS[@]}"; do
+            if [[ "$dir" == "$discovered_dir" ]]; then
+                found=true
+                break
+            fi
+        done
+        if [[ "$found" == "false" ]]; then
+            ((missing_count++))
+        fi
+    done
+    
+    echo "STATUS SUMMARY:" >> "$status_file"
+    echo "• Enabled for backup: $enabled_count" >> "$status_file"
+    echo "• Disabled: $disabled_count" >> "$status_file"
+    echo "• New (not in dirlist): $new_count" >> "$status_file"
+    echo "• Missing (in dirlist but not found): $missing_count" >> "$status_file"
+    echo "" >> "$status_file"
+    
+    # Detailed directory listing
+    echo "DETAILED DIRECTORY STATUS:" >> "$status_file"
+    echo "" >> "$status_file"
+    
+    # Show enabled directories
+    if [[ $enabled_count -gt 0 ]]; then
+        echo "✓ ENABLED DIRECTORIES (will be backed up):" >> "$status_file"
+        for dir in $(printf '%s\n' "${!EXISTING_DIRLIST[@]}" | sort); do
+            if [[ "${EXISTING_DIRLIST[$dir]}" == "true" ]]; then
+                local dir_path="$BACKUP_DIR/$dir"
+                if [[ -d "$dir_path" ]]; then
+                    local size="$(du -sh "$dir_path" 2>/dev/null | cut -f1 || echo "Unknown")"
+                    echo "  • $dir ($size)" >> "$status_file"
+                else
+                    echo "  • $dir (⚠ Directory missing)" >> "$status_file"
+                fi
+            fi
+        done
+        echo "" >> "$status_file"
+    fi
+    
+    # Show disabled directories
+    if [[ $disabled_count -gt 0 ]]; then
+        echo "✗ DISABLED DIRECTORIES (will be skipped):" >> "$status_file"
+        for dir in $(printf '%s\n' "${!EXISTING_DIRLIST[@]}" | sort); do
+            if [[ "${EXISTING_DIRLIST[$dir]}" == "false" ]]; then
+                echo "  • $dir" >> "$status_file"
+            fi
+        done
+        echo "" >> "$status_file"
+    fi
+    
+    # Show new directories
+    if [[ $new_count -gt 0 ]]; then
+        echo "➕ NEW DIRECTORIES (not in dirlist):" >> "$status_file"
+        for dir in "${DISCOVERED_DIRS[@]}"; do
+            if [[ -z "${EXISTING_DIRLIST[$dir]:-}" ]]; then
+                local dir_path="$BACKUP_DIR/$dir"
+                local size="$(du -sh "$dir_path" 2>/dev/null | cut -f1 || echo "Unknown")"
+                echo "  • $dir ($size)" >> "$status_file"
+            fi
+        done
+        echo "" >> "$status_file"
+    fi
+    
+    # Show missing directories
+    if [[ $missing_count -gt 0 ]]; then
+        echo "⚠ MISSING DIRECTORIES (in dirlist but not found):" >> "$status_file"
+        for dir in "${!EXISTING_DIRLIST[@]}"; do
+            local found=false
+            for discovered_dir in "${DISCOVERED_DIRS[@]}"; do
+                if [[ "$dir" == "$discovered_dir" ]]; then
+                    found=true
+                    break
+                fi
+            done
+            if [[ "$found" == "false" ]]; then
+                echo "  • $dir (${EXISTING_DIRLIST[$dir]})" >> "$status_file"
+            fi
+        done
+        echo "" >> "$status_file"
+    fi
+    
+    # Add backup history information if available
+    echo "BACKUP HISTORY:" >> "$status_file"
+    if [[ -f "$SCRIPT_DIR/logs/docker_backup.log" ]]; then
+        local last_backup=$(grep "Backup.*[Cc]ompleted" "$SCRIPT_DIR/logs/docker_backup.log" | tail -1 | cut -d' ' -f1-2)
+        if [[ -n "$last_backup" ]]; then
+            echo "  • Last successful backup: $last_backup" >> "$status_file"
+        else
+            echo "  • No successful backups found in logs" >> "$status_file"
+        fi
+        
+        local total_backups=$(grep -c "Backup.*[Cc]ompleted" "$SCRIPT_DIR/logs/docker_backup.log" 2>/dev/null || echo "0")
+        echo "  • Total successful backups: $total_backups" >> "$status_file"
+    else
+        echo "  • No backup log file found" >> "$status_file"
+    fi
+    
+    dialog --title "Directory Status Report" \
+           --textbox "$status_file" \
+           $DIALOG_HEIGHT $DIALOG_WIDTH
+    
+    # Offer additional actions
+    local action_choice
+    action_choice=$(dialog --clear --title "Directory Status Actions" \
+                          --menu "What would you like to do next?" \
+                          $DIALOG_HEIGHT $DIALOG_WIDTH $DIALOG_MENU_HEIGHT \
+                          "1" "Refresh status report" \
+                          "2" "Select directories for backup" \
+                          "3" "Synchronize directory list" \
+                          "4" "Return to directory menu" \
+                          3>&1 1>&2 2>&3)
+    
+    case $action_choice in
+        1) view_directory_status_tui ;;
+        2) select_directories_tui ;;
+        3) synchronize_directory_list ;;
+        4|"") return ;;
+    esac
+}
+
+# Create dialog checklist options for directory selection
+create_checklist_options_tui() {
+    local -a options=()
+    
+    # Combine discovered directories with existing dirlist
+    local -A all_dirs
+    
+    # Add discovered directories (default to true for new dirs)
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        all_dirs["$dir"]="true"
+    done
+    
+    # Override with existing settings if available
+    for dir in "${!EXISTING_DIRLIST[@]}"; do
+        all_dirs["$dir"]="${EXISTING_DIRLIST[$dir]}"
+    done
+    
+    # Create options array for dialog: tag description status
+    for dir in $(printf '%s\n' "${!all_dirs[@]}" | sort); do
+        local status="${all_dirs[$dir]}"
+        local check_status="off"
+        local description="Docker compose directory"
+        
+        if [[ "$status" == "true" ]]; then
+            check_status="on"
+        fi
+        
+        # Add size information if directory exists
+        local dir_path="$BACKUP_DIR/$dir"
+        if [[ -d "$dir_path" ]]; then
+            local size="$(du -sh "$dir_path" 2>/dev/null | cut -f1 || echo "?")"
+            description="Docker compose directory ($size)"
+        else
+            description="Docker compose directory (⚠ missing)"
+        fi
+        
+        # Add directory to options: tag description status
+        options+=("$dir" "$description" "$check_status")
+    done
+    
+    # Return options via global variable
+    CHECKLIST_OPTIONS=("${options[@]}")
+}
+
+# Interactive directory selection interface
+select_directories_tui() {
+    log_tui "Opening directory selection interface"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    if ! discover_directories_tui; then
+        return
+    fi
+    
+    # Load existing dirlist
+    load_dirlist_tui || true
+    
+    # Create checklist options
+    create_checklist_options_tui
+    
+    if [[ ${#CHECKLIST_OPTIONS[@]} -eq 0 ]]; then
+        show_error "No Directories" "No directories available for selection."
+        return
+    fi
+    
+    local temp_file="$TEMP_DIR/directory_selection.txt"
+    
+    # Show directory selection dialog
+    if dialog --clear \
+        --title "Select Directories for Backup" \
+        --backtitle "Docker Stack Backup System - Directory Selection" \
+        --checklist "Use SPACE to toggle, ENTER to confirm, ESC to cancel:\n\nSelect directories to include in backup:" \
+        20 80 12 \
+        "${CHECKLIST_OPTIONS[@]}" \
+        2>"$temp_file"; then
+        
+        # User confirmed selection
+        local selected_dirs
+        selected_dirs="$(cat "$temp_file")"
+        rm -f "$temp_file"
+        
+        # Process the selection
+        process_directory_selection "$selected_dirs"
+    else
+        # User cancelled
+        rm -f "$temp_file"
+        log_tui "Directory selection cancelled by user"
+    fi
+}
+
+# Process user directory selection
+process_directory_selection() {
+    local selected_dirs="$1"
+    local -A new_settings
+    local changes_made=false
+    
+    # Initialize all known directories as false
+    for dir in "${!EXISTING_DIRLIST[@]}" "${DISCOVERED_DIRS[@]}"; do
+        new_settings["$dir"]="false"
+    done
+    
+    # Set selected directories to true
+    if [[ -n "$selected_dirs" ]]; then
+        # Parse selected directories (space-separated, quoted)
+        eval "selected_array=($selected_dirs)"
+        for dir in "${selected_array[@]}"; do
+            new_settings["$dir"]="true"
+        done
+    fi
+    
+    # Check for changes
+    for dir in "${!new_settings[@]}"; do
+        local old_setting="${EXISTING_DIRLIST[$dir]:-false}"
+        local new_setting="${new_settings[$dir]}"
+        
+        if [[ "$old_setting" != "$new_setting" ]]; then
+            changes_made=true
+            break
+        fi
+    done
+    
+    # Show confirmation dialog with changes summary
+    show_directory_confirmation new_settings "$changes_made"
+}
+
+# Show directory selection confirmation with detailed summary
+show_directory_confirmation() {
+    local -n settings_ref=$1
+    local changes_made="$2"
+    local temp_file="$TEMP_DIR/directory_confirmation.txt"
+    
+    # Create comprehensive summary
+    local enabled_count=0
+    local disabled_count=0
+    local changed_dirs=()
+    
+    cat > "$temp_file" << EOF
+DIRECTORY BACKUP CONFIGURATION SUMMARY
+=======================================
+
+EOF
+    
+    # Count and list enabled directories
+    echo "ENABLED DIRECTORIES (will be backed up):" >> "$temp_file"
+    for dir in $(printf '%s\n' "${!settings_ref[@]}" | sort); do
+        if [[ "${settings_ref[$dir]}" == "true" ]]; then
+            local dir_path="$BACKUP_DIR/$dir"
+            local size="$(du -sh "$dir_path" 2>/dev/null | cut -f1 || echo "Unknown")"
+            echo "  ✓ $dir ($size)" >> "$temp_file"
+            ((enabled_count++))
+            
+            # Check if this is a change
+            local old_setting="${EXISTING_DIRLIST[$dir]:-false}"
+            if [[ "$old_setting" != "true" ]]; then
+                changed_dirs+=("$dir (enabled)")
+            fi
+        fi
+    done
+    
+    if [[ $enabled_count -eq 0 ]]; then
+        echo "  (none - NO DIRECTORIES WILL BE BACKED UP!)" >> "$temp_file"
+    fi
+    
+    echo "" >> "$temp_file"
+    echo "DISABLED DIRECTORIES (will be skipped):" >> "$temp_file"
+    
+    for dir in $(printf '%s\n' "${!settings_ref[@]}" | sort); do
+        if [[ "${settings_ref[$dir]}" == "false" ]]; then
+            echo "  ✗ $dir" >> "$temp_file"
+            ((disabled_count++))
+            
+            # Check if this is a change
+            local old_setting="${EXISTING_DIRLIST[$dir]:-false}"
+            if [[ "$old_setting" != "false" ]]; then
+                changed_dirs+=("$dir (disabled)")
+            fi
+        fi
+    done
+    
+    if [[ $disabled_count -eq 0 ]]; then
+        echo "  (none)" >> "$temp_file"
+    fi
+    
+    echo "" >> "$temp_file"
+    echo "SUMMARY:" >> "$temp_file"
+    echo "  • Total directories: $((enabled_count + disabled_count))" >> "$temp_file"
+    echo "  • Enabled for backup: $enabled_count" >> "$temp_file"
+    echo "  • Disabled: $disabled_count" >> "$temp_file"
+    
+    if [[ "$changes_made" == "true" ]]; then
+        echo "" >> "$temp_file"
+        echo "CHANGES DETECTED:" >> "$temp_file"
+        for change in "${changed_dirs[@]}"; do
+            echo "  • $change" >> "$temp_file"
+        done
+        echo "" >> "$temp_file"
+        echo "⚠ Directory list file will be updated" >> "$temp_file"
+    else
+        echo "" >> "$temp_file"
+        echo "✓ No changes made - current configuration maintained" >> "$temp_file"
+    fi
+    
+    # Show confirmation dialog
+    if dialog --clear \
+        --title "Confirm Directory Configuration" \
+        --backtitle "Docker Stack Backup System - Confirmation" \
+        --yes-label "Save Changes" \
+        --no-label "Cancel" \
+        --textbox "$temp_file" \
+        25 85; then
+        
+        # User confirmed, save changes
+        save_directory_settings settings_ref
+    else
+        # User cancelled
+        log_tui "Directory configuration changes not saved - cancelled by user"
+        show_info "Changes Cancelled" "Directory configuration changes were not saved."
+    fi
+    
+    rm -f "$temp_file"
+}
+
+# Save directory settings to .dirlist file with atomic operation
+save_directory_settings() {
+    local -n settings_ref=$1
+    local dirlist_file="$SCRIPT_DIR/dirlist"
+    local temp_dirlist="$TEMP_DIR/dirlist.tmp"
+    
+    log_tui "Saving directory configuration to: $dirlist_file"
+    
+    # Create temporary dirlist file
+    cat > "$temp_dirlist" << 'EOF'
+# Auto-generated directory list for selective backup
+# Edit this file to enable/disable backup for each directory  
+# true = backup enabled, false = skip backup
+# Generated by Backup TUI on $(date)
+EOF
+    
+    # Add timestamp comment
+    echo "# Last updated: $(date)" >> "$temp_dirlist"
+    echo "" >> "$temp_dirlist"
+    
+    # Write directory settings in sorted order
+    for dir in $(printf '%s\n' "${!settings_ref[@]}" | sort); do
+        echo "$dir=${settings_ref[$dir]}" >> "$temp_dirlist"
+    done
+    
+    # Atomically replace the dirlist file
+    if mv "$temp_dirlist" "$dirlist_file"; then
+        local enabled_count=0
+        local enabled_dirs=()
+        
+        # Count enabled directories
+        for dir in "${!settings_ref[@]}"; do
+            if [[ "${settings_ref[$dir]}" == "true" ]]; then
+                enabled_dirs+=("$dir")
+                ((enabled_count++))
+            fi
+        done
+        
+        # Show success message with summary
+        local summary="Directory configuration saved successfully!\n\nFile: $dirlist_file\nDirectories enabled: $enabled_count"
+        
+        if [[ $enabled_count -gt 0 && $enabled_count -le 10 ]]; then
+            summary="${summary}\n\nEnabled directories:"
+            for dir in $(printf '%s\n' "${enabled_dirs[@]}" | sort); do
+                summary="${summary}\n• $dir"
+            done
+        elif [[ $enabled_count -gt 10 ]]; then
+            summary="${summary}\n\n(Too many to list - view status for details)"
+        fi
+        
+        summary="${summary}\n\nChanges will take effect on next backup."
+        
+        show_info "Configuration Saved" "$summary"
+        
+        # Update global EXISTING_DIRLIST for other functions
+        unset EXISTING_DIRLIST
+        declare -gA EXISTING_DIRLIST
+        for dir in "${!settings_ref[@]}"; do
+            EXISTING_DIRLIST["$dir"]="${settings_ref[$dir]}"
+        done
+        
+        log_tui "Directory configuration saved successfully with $enabled_count enabled directories"
+        
+    else
+        rm -f "$temp_dirlist"
+        show_error "Save Failed" "Failed to save directory configuration.\n\nPlease check file permissions and disk space."
+        log_tui "Failed to save directory configuration to $dirlist_file"
+    fi
+}
+
+# Bulk operations menu
+bulk_operations_menu() {
+    log_tui "Opening bulk operations menu"
+    
+    while true; do
+        local choice
+        choice=$(dialog --clear --title "Bulk Directory Operations" \
+                       --menu "Choose bulk operation:" \
+                       $DIALOG_HEIGHT $DIALOG_WIDTH $DIALOG_MENU_HEIGHT \
+                       "1" "Enable All Directories" \
+                       "2" "Disable All Directories" \
+                       "3" "Enable by Pattern Matching" \
+                       "4" "Disable by Pattern Matching" \
+                       "5" "Toggle All Directory States" \
+                       "6" "Reset to Defaults (New dirs enabled)" \
+                       "7" "Apply Template Configuration" \
+                       "0" "Return to Directory Menu" \
+                       3>&1 1>&2 2>&3)
+        
+        case $choice in
+            1) bulk_enable_all ;;
+            2) bulk_disable_all ;;
+            3) bulk_enable_by_pattern ;;
+            4) bulk_disable_by_pattern ;;
+            5) bulk_toggle_all ;;
+            6) bulk_reset_defaults ;;
+            7) bulk_apply_template ;;
+            0|"") break ;;
+        esac
+    done
+}
+
+# Bulk enable all directories
+bulk_enable_all() {
+    log_tui "Bulk enabling all directories"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    if ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    local dir_count=${#DISCOVERED_DIRS[@]}
+    local confirmation="Enable ALL directories for backup?\n\nThis will set ${dir_count} directories to enabled status.\n\nDirectories:"
+    
+    # Add first few directories to confirmation
+    local shown_count=0
+    for dir in $(printf '%s\n' "${DISCOVERED_DIRS[@]}" | sort); do
+        if [[ $shown_count -lt 8 ]]; then
+            confirmation="${confirmation}\n• $dir"
+            ((shown_count++))
+        else
+            confirmation="${confirmation}\n• ... and $((dir_count - shown_count)) more"
+            break
+        fi
+    done
+    
+    confirmation="${confirmation}\n\nContinue?"
+    
+    if show_confirm "Bulk Enable All" "$confirmation"; then
+        local -A bulk_settings
+        
+        # Set all discovered directories to enabled
+        for dir in "${DISCOVERED_DIRS[@]}"; do
+            bulk_settings["$dir"]="true"
+        done
+        
+        # Add any existing disabled directories (keep them in list but disabled)
+        for dir in "${!EXISTING_DIRLIST[@]}"; do
+            if [[ -z "${bulk_settings[$dir]:-}" ]]; then
+                bulk_settings["$dir"]="false"  # Keep missing dirs disabled
+            fi
+        done
+        
+        save_directory_settings bulk_settings
+    fi
+}
+
+# Bulk disable all directories
+bulk_disable_all() {
+    log_tui "Bulk disabling all directories"
+    
+    if show_confirm "Bulk Disable All" "Disable ALL directories for backup?\n\n⚠ WARNING: This will disable backup for all directories!\nNo directories will be backed up until re-enabled.\n\nContinue?"; then
+        
+        # Load configuration and discover directories
+        if ! load_config_for_dirlist; then
+            return
+        fi
+        
+        if ! discover_directories_tui; then
+            return
+        fi
+        
+        load_dirlist_tui || true
+        
+        local -A bulk_settings
+        
+        # Set all directories to disabled
+        for dir in "${DISCOVERED_DIRS[@]}"; do
+            bulk_settings["$dir"]="false"
+        done
+        
+        # Include existing dirlist directories
+        for dir in "${!EXISTING_DIRLIST[@]}"; do
+            bulk_settings["$dir"]="false"
+        done
+        
+        save_directory_settings bulk_settings
+    fi
+}
+
+# Bulk enable directories by pattern matching
+bulk_enable_by_pattern() {
+    log_tui "Bulk enabling directories by pattern"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    if ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    # Get pattern from user
+    local pattern
+    pattern=$(dialog --inputbox "Enter pattern to match directory names:\n\nExamples:\n• app* (matches app1, app2, etc)\n• *web* (matches webserver, webapp, etc)\n• test-* (matches test-db, test-api, etc)\n\nPattern:" 15 60 3>&1 1>&2 2>&3)
+    
+    if [[ -z "$pattern" ]]; then
+        return
+    fi
+    
+    # Find matching directories
+    local matching_dirs=()
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        if [[ "$dir" == $pattern ]]; then
+            matching_dirs+=("$dir")
+        fi
+    done
+    
+    if [[ ${#matching_dirs[@]} -eq 0 ]]; then
+        show_error "No Matches" "No directories found matching pattern: $pattern"
+        return
+    fi
+    
+    # Show matching directories for confirmation
+    local match_list="Found ${#matching_dirs[@]} directories matching pattern '$pattern':\n\n"
+    for dir in "${matching_dirs[@]}"; do
+        match_list="${match_list}• $dir\n"
+    done
+    match_list="${match_list}\nEnable all these directories for backup?"
+    
+    if show_confirm "Confirm Pattern Match" "$match_list"; then
+        local -A bulk_settings
+        
+        # Start with existing settings
+        for dir in "${!EXISTING_DIRLIST[@]}"; do
+            bulk_settings["$dir"]="${EXISTING_DIRLIST[$dir]}"
+        done
+        
+        # Add discovered directories not in existing list (default to false)
+        for dir in "${DISCOVERED_DIRS[@]}"; do
+            if [[ -z "${bulk_settings[$dir]:-}" ]]; then
+                bulk_settings["$dir"]="false"
+            fi
+        done
+        
+        # Enable matching directories
+        for dir in "${matching_dirs[@]}"; do
+            bulk_settings["$dir"]="true"
+        done
+        
+        save_directory_settings bulk_settings
+    fi
+}
+
+# Bulk disable directories by pattern matching
+bulk_disable_by_pattern() {
+    log_tui "Bulk disabling directories by pattern"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    if ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    # Get pattern from user
+    local pattern
+    pattern=$(dialog --inputbox "Enter pattern to match directory names:\n\nExamples:\n• test-* (disable all test directories)\n• *old* (disable directories with 'old' in name)\n• backup-* (disable backup directories)\n\nPattern:" 15 60 3>&1 1>&2 2>&3)
+    
+    if [[ -z "$pattern" ]]; then
+        return
+    fi
+    
+    # Find matching directories
+    local matching_dirs=()
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        if [[ "$dir" == $pattern ]]; then
+            matching_dirs+=("$dir")
+        fi
+    done
+    
+    if [[ ${#matching_dirs[@]} -eq 0 ]]; then
+        show_error "No Matches" "No directories found matching pattern: $pattern"
+        return
+    fi
+    
+    # Show matching directories for confirmation
+    local match_list="Found ${#matching_dirs[@]} directories matching pattern '$pattern':\n\n"
+    for dir in "${matching_dirs[@]}"; do
+        match_list="${match_list}• $dir\n"
+    done
+    match_list="${match_list}\nDisable all these directories for backup?"
+    
+    if show_confirm "Confirm Pattern Match" "$match_list"; then
+        local -A bulk_settings
+        
+        # Start with existing settings
+        for dir in "${!EXISTING_DIRLIST[@]}"; do
+            bulk_settings["$dir"]="${EXISTING_DIRLIST[$dir]}"
+        done
+        
+        # Add discovered directories not in existing list (default to false)
+        for dir in "${DISCOVERED_DIRS[@]}"; do
+            if [[ -z "${bulk_settings[$dir]:-}" ]]; then
+                bulk_settings["$dir"]="false"
+            fi
+        done
+        
+        # Disable matching directories
+        for dir in "${matching_dirs[@]}"; do
+            bulk_settings["$dir"]="false"
+        done
+        
+        save_directory_settings bulk_settings
+    fi
+}
+
+# Bulk toggle all directory states
+bulk_toggle_all() {
+    log_tui "Bulk toggling all directory states"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    if ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    local enabled_count=0
+    local disabled_count=0
+    
+    # Count current states
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        local current_state="${EXISTING_DIRLIST[$dir]:-false}"
+        if [[ "$current_state" == "true" ]]; then
+            ((enabled_count++))
+        else
+            ((disabled_count++))
+        fi
+    done
+    
+    local confirmation="Toggle ALL directory backup states?\n\nCurrent status:\n• Enabled: $enabled_count directories\n• Disabled: $disabled_count directories\n\nAfter toggle:\n• Enabled will become: $disabled_count\n• Disabled will become: $enabled_count\n\nContinue?"
+    
+    if show_confirm "Bulk Toggle All" "$confirmation"; then
+        local -A bulk_settings
+        
+        # Toggle all discovered directories
+        for dir in "${DISCOVERED_DIRS[@]}"; do
+            local current_state="${EXISTING_DIRLIST[$dir]:-false}"
+            if [[ "$current_state" == "true" ]]; then
+                bulk_settings["$dir"]="false"
+            else
+                bulk_settings["$dir"]="true"
+            fi
+        done
+        
+        # Keep existing directories that are no longer discovered (but mark as disabled)
+        for dir in "${!EXISTING_DIRLIST[@]}"; do
+            if [[ -z "${bulk_settings[$dir]:-}" ]]; then
+                bulk_settings["$dir"]="false"
+            fi
+        done
+        
+        save_directory_settings bulk_settings
+    fi
+}
+
+# Bulk reset to defaults (enable new directories, keep existing settings)
+bulk_reset_defaults() {
+    log_tui "Bulk resetting to default configuration"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    if ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    local confirmation="Reset directory configuration to defaults?\n\nThis will:\n• Enable all newly discovered directories\n• Keep existing directory settings unchanged\n• Remove directories that no longer exist\n\nContinue?"
+    
+    if show_confirm "Reset to Defaults" "$confirmation"; then
+        local -A bulk_settings
+        
+        # Set all discovered directories to enabled (default for new)
+        for dir in "${DISCOVERED_DIRS[@]}"; do
+            local existing_state="${EXISTING_DIRLIST[$dir]:-}"
+            if [[ -z "$existing_state" ]]; then
+                # New directory - enable by default
+                bulk_settings["$dir"]="true"
+            else
+                # Existing directory - keep current setting
+                bulk_settings["$dir"]="$existing_state"
+            fi
+        done
+        
+        save_directory_settings bulk_settings
+    fi
+}
+
+# Bulk apply template configuration
+bulk_apply_template() {
+    log_tui "Applying template configuration"
+    
+    local template_choice
+    template_choice=$(dialog --clear --title "Apply Configuration Template" \
+                            --menu "Choose a configuration template:" \
+                            $DIALOG_HEIGHT $DIALOG_WIDTH $DIALOG_MENU_HEIGHT \
+                            "1" "Production (Enable core services only)" \
+                            "2" "Development (Enable all except test dirs)" \
+                            "3" "Testing (Enable test directories only)" \
+                            "4" "Minimal (Enable essential services only)" \
+                            "5" "Custom Template from File" \
+                            3>&1 1>&2 2>&3)
+    
+    case $template_choice in
+        1) apply_production_template ;;
+        2) apply_development_template ;;
+        3) apply_testing_template ;;
+        4) apply_minimal_template ;;
+        5) apply_custom_template ;;
+    esac
+}
+
+# Apply production template (core services)
+apply_production_template() {
+    # Load directories first
+    if ! load_config_for_dirlist || ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    local -A template_settings
+    local production_patterns=("web*" "app*" "db*" "database*" "nginx*" "apache*" "mysql*" "postgres*" "redis*" "mongo*")
+    
+    # Start with all disabled
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        template_settings["$dir"]="false"
+    done
+    
+    # Enable directories matching production patterns
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        for pattern in "${production_patterns[@]}"; do
+            if [[ "$dir" == $pattern ]]; then
+                template_settings["$dir"]="true"
+                break
+            fi
+        done
+    done
+    
+    if show_confirm "Production Template" "Apply production template?\n\nThis will enable directories matching:\n• web*, app*, db*, database*\n• nginx*, apache*, mysql*, postgres*\n• redis*, mongo*\n\nAll other directories will be disabled."; then
+        save_directory_settings template_settings
+    fi
+}
+
+# Apply development template (all except test)
+apply_development_template() {
+    if ! load_config_for_dirlist || ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    local -A template_settings
+    local test_patterns=("test*" "*test*" "staging*" "*staging*" "demo*" "*demo*")
+    
+    # Start with all enabled
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        template_settings["$dir"]="true"
+    done
+    
+    # Disable test/staging/demo directories
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        for pattern in "${test_patterns[@]}"; do
+            if [[ "$dir" == $pattern ]]; then
+                template_settings["$dir"]="false"
+                break
+            fi
+        done
+    done
+    
+    if show_confirm "Development Template" "Apply development template?\n\nThis will:\n• Enable all directories\n• Except those matching: test*, *test*, staging*, *staging*, demo*, *demo*\n\nContinue?"; then
+        save_directory_settings template_settings
+    fi
+}
+
+# Apply testing template (test directories only)
+apply_testing_template() {
+    if ! load_config_for_dirlist || ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    local -A template_settings
+    local test_patterns=("test*" "*test*" "staging*" "*staging*" "demo*" "*demo*" "dev*" "*dev*")
+    
+    # Start with all disabled
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        template_settings["$dir"]="false"
+    done
+    
+    # Enable test/staging/demo directories
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        for pattern in "${test_patterns[@]}"; do
+            if [[ "$dir" == $pattern ]]; then
+                template_settings["$dir"]="true"
+                break
+            fi
+        done
+    done
+    
+    if show_confirm "Testing Template" "Apply testing template?\n\nThis will enable only directories matching:\n• test*, *test*, staging*, *staging*\n• demo*, *demo*, dev*, *dev*\n\nAll other directories will be disabled."; then
+        save_directory_settings template_settings
+    fi
+}
+
+# Apply minimal template (essential only)
+apply_minimal_template() {
+    if ! load_config_for_dirlist || ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    local -A template_settings
+    local essential_patterns=("db*" "database*" "mysql*" "postgres*" "data*" "backup*")
+    
+    # Start with all disabled
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        template_settings["$dir"]="false"
+    done
+    
+    # Enable only essential data directories
+    for dir in "${DISCOVERED_DIRS[@]}"; do
+        for pattern in "${essential_patterns[@]}"; do
+            if [[ "$dir" == $pattern ]]; then
+                template_settings["$dir"]="true"
+                break
+            fi
+        done
+    done
+    
+    if show_confirm "Minimal Template" "Apply minimal template?\n\nThis will enable only essential data directories:\n• db*, database*, mysql*, postgres*\n• data*, backup*\n\nAll other directories will be disabled."; then
+        save_directory_settings template_settings
+    fi
+}
+
+# Apply custom template from file
+apply_custom_template() {
+    show_info "Custom Template" "Custom template from file feature will be available in a future update.\n\nFor now, you can:\n1. Manually edit the dirlist file\n2. Use pattern matching options\n3. Copy settings from another system"
+}
+
+# Synchronize directory list with filesystem
+synchronize_directory_list() {
+    log_tui "Synchronizing directory list with filesystem"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    if ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    # Analyze changes between discovered and existing
+    local -a removed_dirs=()
+    local -a new_dirs=()
+    local changes_detected=false
+    
+    # Check for removed directories (in dirlist but not discovered)
+    for dir in "${!EXISTING_DIRLIST[@]}"; do
+        local found=false
+        for discovered_dir in "${DISCOVERED_DIRS[@]}"; do
+            if [[ "$dir" == "$discovered_dir" ]]; then
+                found=true
+                break
+            fi
+        done
+        if [[ "$found" == "false" ]]; then
+            removed_dirs+=("$dir")
+            changes_detected=true
+        fi
+    done
+    
+    # Check for new directories (discovered but not in dirlist)
+    for discovered_dir in "${DISCOVERED_DIRS[@]}"; do
+        if [[ -z "${EXISTING_DIRLIST[$discovered_dir]:-}" ]]; then
+            new_dirs+=("$discovered_dir")
+            changes_detected=true
+        fi
+    done
+    
+    # Create synchronization report
+    local sync_report="$TEMP_DIR/sync_report.txt"
+    
+    cat > "$sync_report" << EOF
+DIRECTORY SYNCHRONIZATION REPORT
+=================================
+
+Generated: $(date)
+Backup Directory: $BACKUP_DIR
+
+EOF
+    
+    if [[ "$changes_detected" == "false" ]]; then
+        echo "STATUS: ✓ No synchronization needed" >> "$sync_report"
+        echo "" >> "$sync_report"
+        echo "All directories in the list exist in the backup directory." >> "$sync_report"
+        echo "No new directories were found." >> "$sync_report"
+    else
+        echo "STATUS: ⚠ Changes detected - synchronization needed" >> "$sync_report"
+        echo "" >> "$sync_report"
+        
+        if [[ ${#removed_dirs[@]} -gt 0 ]]; then
+            echo "REMOVED DIRECTORIES (no longer exist):" >> "$sync_report"
+            for dir in "${removed_dirs[@]}"; do
+                echo "  ✗ $dir (was: ${EXISTING_DIRLIST[$dir]})" >> "$sync_report"
+            done
+            echo "" >> "$sync_report"
+        fi
+        
+        if [[ ${#new_dirs[@]} -gt 0 ]]; then
+            echo "NEW DIRECTORIES (will be added as disabled):" >> "$sync_report"
+            for dir in "${new_dirs[@]}"; do
+                local dir_path="$BACKUP_DIR/$dir"
+                local size="$(du -sh "$dir_path" 2>/dev/null | cut -f1 || echo "Unknown")"
+                echo "  ➕ $dir ($size)" >> "$sync_report"
+            done
+            echo "" >> "$sync_report"
+        fi
+        
+        echo "SUMMARY:" >> "$sync_report"
+        echo "  • Directories to remove: ${#removed_dirs[@]}" >> "$sync_report"
+        echo "  • Directories to add: ${#new_dirs[@]}" >> "$sync_report"
+    fi
+    
+    # Show synchronization report and get confirmation
+    if dialog --clear \
+        --title "Directory Synchronization" \
+        --backtitle "Docker Stack Backup System - Synchronization" \
+        --yes-label "Apply Changes" \
+        --no-label "Cancel" \
+        --textbox "$sync_report" \
+        20 80; then
+        
+        if [[ "$changes_detected" == "true" ]]; then
+            # Apply synchronization changes
+            local -A synced_settings
+            
+            # Start with existing settings, excluding removed directories
+            for dir in "${!EXISTING_DIRLIST[@]}"; do
+                local is_removed=false
+                for removed_dir in "${removed_dirs[@]}"; do
+                    if [[ "$dir" == "$removed_dir" ]]; then
+                        is_removed=true
+                        break
+                    fi
+                done
+                if [[ "$is_removed" == "false" ]]; then
+                    synced_settings["$dir"]="${EXISTING_DIRLIST[$dir]}"
+                fi
+            done
+            
+            # Add new directories (defaulting to false for safety)
+            for new_dir in "${new_dirs[@]}"; do
+                synced_settings["$new_dir"]="false"
+            done
+            
+            # Save synchronized settings
+            save_directory_settings synced_settings
+            
+            show_info "Synchronization Complete" "Directory list has been synchronized successfully!\n\nSummary:\n• Removed: ${#removed_dirs[@]} directories\n• Added: ${#new_dirs[@]} directories (disabled by default)\n\nNew directories can be enabled via directory selection."
+        else
+            show_info "No Changes" "Directory list is already synchronized with the backup directory."
+        fi
+    else
+        log_tui "Directory synchronization cancelled by user"
+    fi
+    
+    rm -f "$sync_report"
+}
+
+# Import/export directory settings menu
+import_export_menu() {
+    log_tui "Opening import/export menu"
+    
+    while true; do
+        local choice
+        choice=$(dialog --clear --title "Import/Export Directory Settings" \
+                       --menu "Choose import/export option:" \
+                       $DIALOG_HEIGHT $DIALOG_WIDTH $DIALOG_MENU_HEIGHT \
+                       "1" "Export Directory Settings" \
+                       "2" "Import Directory Settings" \
+                       "3" "Create Template from Current" \
+                       "4" "View Export Formats" \
+                       "5" "Backup Current Settings" \
+                       "0" "Return to Directory Menu" \
+                       3>&1 1>&2 2>&3)
+        
+        case $choice in
+            1) export_directory_settings ;;
+            2) import_directory_settings ;;
+            3) create_template_from_current ;;
+            4) view_export_formats ;;
+            5) backup_current_settings ;;
+            0|"") break ;;
+        esac
+    done
+}
+
+# Export directory settings
+export_directory_settings() {
+    log_tui "Exporting directory settings"
+    
+    # Load current settings
+    if ! load_config_for_dirlist || ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    # Get export filename
+    local export_file
+    export_file=$(dialog --inputbox "Enter filename for exported settings:\n\n(Will be saved in script directory)" 10 60 "dirlist-export-$(date +%Y%m%d-%H%M%S).txt" 3>&1 1>&2 2>&3)
+    
+    if [[ -z "$export_file" ]]; then
+        return
+    fi
+    
+    local full_export_path="$SCRIPT_DIR/$export_file"
+    
+    # Create export file
+    cat > "$full_export_path" << EOF
+# Directory Settings Export
+# Generated: $(date)
+# Backup Directory: $BACKUP_DIR
+# Total Directories: ${#DISCOVERED_DIRS[@]}
+# Export Format: directory_name=true|false
+#
+# This file can be imported to restore these directory settings
+# Edit as needed before importing
+
+EOF
+    
+    # Add current settings
+    local enabled_count=0
+    local disabled_count=0
+    
+    for dir in $(printf '%s\n' "${DISCOVERED_DIRS[@]}" | sort); do
+        local status="${EXISTING_DIRLIST[$dir]:-false}"
+        echo "$dir=$status" >> "$full_export_path"
+        
+        if [[ "$status" == "true" ]]; then
+            ((enabled_count++))
+        else
+            ((disabled_count++))
+        fi
+    done
+    
+    show_info "Export Complete" "Directory settings exported successfully!\n\nFile: $full_export_path\nTotal directories: ${#DISCOVERED_DIRS[@]}\nEnabled: $enabled_count\nDisabled: $disabled_count\n\nThis file can be imported on this or other systems."
+    
+    log_tui "Exported directory settings to $full_export_path"
+}
+
+# Import directory settings
+import_directory_settings() {
+    log_tui "Importing directory settings"
+    
+    # Get import filename
+    local import_file
+    import_file=$(dialog --inputbox "Enter filename to import:\n\n(File should be in script directory or provide full path)" 10 60 3>&1 1>&2 2>&3)
+    
+    if [[ -z "$import_file" ]]; then
+        return
+    fi
+    
+    # Check if file needs full path
+    if [[ "$import_file" != /* ]]; then
+        import_file="$SCRIPT_DIR/$import_file"
+    fi
+    
+    if [[ ! -f "$import_file" ]]; then
+        show_error "File Not Found" "Import file not found: $import_file"
+        return
+    fi
+    
+    # Load current configuration for validation
+    if ! load_config_for_dirlist || ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    # Parse import file
+    local -A import_settings
+    local import_count=0
+    local invalid_count=0
+    local temp_validation="$TEMP_DIR/import_validation.txt"
+    
+    echo "IMPORT VALIDATION REPORT" > "$temp_validation"
+    echo "========================" >> "$temp_validation"
+    echo "" >> "$temp_validation"
+    echo "Import File: $import_file" >> "$temp_validation"
+    echo "Generated: $(date)" >> "$temp_validation"
+    echo "" >> "$temp_validation"
+    
+    while IFS='=' read -r dir_name enabled; do
+        # Skip comments and empty lines
+        if [[ "$dir_name" =~ ^#.*$ ]] || [[ -z "$dir_name" ]]; then
+            continue
+        fi
+        
+        # Validate format
+        if [[ "$enabled" =~ ^(true|false)$ ]]; then
+            import_settings["$dir_name"]="$enabled"
+            ((import_count++))
+            
+            # Check if directory exists in current system
+            local found=false
+            for discovered_dir in "${DISCOVERED_DIRS[@]}"; do
+                if [[ "$dir_name" == "$discovered_dir" ]]; then
+                    found=true
+                    break
+                fi
+            done
+            
+            if [[ "$found" == "true" ]]; then
+                echo "✓ $dir_name=$enabled (directory exists)" >> "$temp_validation"
+            else
+                echo "⚠ $dir_name=$enabled (directory NOT found in current system)" >> "$temp_validation"
+            fi
+        else
+            echo "✗ Invalid format: $dir_name=$enabled" >> "$temp_validation"
+            ((invalid_count++))
+        fi
+    done < "$import_file"
+    
+    echo "" >> "$temp_validation"
+    echo "IMPORT SUMMARY:" >> "$temp_validation"
+    echo "  • Valid entries found: $import_count" >> "$temp_validation"
+    echo "  • Invalid entries: $invalid_count" >> "$temp_validation"
+    echo "  • Directories in current system: ${#DISCOVERED_DIRS[@]}" >> "$temp_validation"
+    
+    if [[ $import_count -gt 0 ]]; then
+        echo "" >> "$temp_validation"
+        echo "ℹ Note: Directories not found in current system will be ignored." >> "$temp_validation"
+        echo "Only matching directories will have their settings imported." >> "$temp_validation"
+    fi
+    
+    # Show validation report and get confirmation
+    if dialog --clear \
+        --title "Import Validation" \
+        --backtitle "Docker Stack Backup System - Import" \
+        --yes-label "Import Settings" \
+        --no-label "Cancel" \
+        --textbox "$temp_validation" \
+        20 80; then
+        
+        if [[ $import_count -gt 0 ]]; then
+            # Apply import settings
+            local -A final_settings
+            
+            # Start with current discovered directories (default to false)
+            for dir in "${DISCOVERED_DIRS[@]}"; do
+                final_settings["$dir"]="false"
+            done
+            
+            # Apply import settings for matching directories only
+            local applied_count=0
+            for dir in "${!import_settings[@]}"; do
+                if [[ -n "${final_settings[$dir]:-}" ]]; then
+                    final_settings["$dir"]="${import_settings[$dir]}"
+                    ((applied_count++))
+                fi
+            done
+            
+            # Save imported settings
+            save_directory_settings final_settings
+            
+            show_info "Import Complete" "Directory settings imported successfully!\n\nImported: $applied_count directory settings\nSkipped: $((import_count - applied_count)) (directories not found)\n\nSettings are now active."
+        else
+            show_error "Import Failed" "No valid directory settings found in import file."
+        fi
+    else
+        log_tui "Directory settings import cancelled by user"
+    fi
+    
+    rm -f "$temp_validation"
+}
+
+# Create template from current settings
+create_template_from_current() {
+    log_tui "Creating template from current settings"
+    
+    # Load current settings
+    if ! load_config_for_dirlist || ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    # Get template name
+    local template_name
+    template_name=$(dialog --inputbox "Enter template name:\n\n(Will create template file for future use)" 10 60 "my-template-$(date +%Y%m%d)" 3>&1 1>&2 2>&3)
+    
+    if [[ -z "$template_name" ]]; then
+        return
+    fi
+    
+    local template_file="$SCRIPT_DIR/templates/dirlist-template-${template_name}.txt"
+    
+    # Create templates directory if it doesn't exist
+    mkdir -p "$SCRIPT_DIR/templates"
+    
+    # Create template file
+    cat > "$template_file" << EOF
+# Directory Settings Template: $template_name
+# Created: $(date)
+# Based on backup directory: $BACKUP_DIR
+# 
+# This template can be applied to other backup systems
+# Edit patterns and settings as needed
+#
+# Template Format: directory_name=true|false
+
+EOF
+    
+    # Add current settings as template
+    local enabled_count=0
+    local disabled_count=0
+    
+    for dir in $(printf '%s\n' "${DISCOVERED_DIRS[@]}" | sort); do
+        local status="${EXISTING_DIRLIST[$dir]:-false}"
+        echo "$dir=$status" >> "$template_file"
+        
+        if [[ "$status" == "true" ]]; then
+            ((enabled_count++))
+        else
+            ((disabled_count++))
+        fi
+    done
+    
+    show_info "Template Created" "Directory template created successfully!\n\nTemplate: $template_file\nDirectories: ${#DISCOVERED_DIRS[@]}\nEnabled: $enabled_count\nDisabled: $disabled_count\n\nThis template can be used to quickly configure other backup systems with similar directory structures."
+    
+    log_tui "Created directory template: $template_file"
+}
+
+# View export formats help
+view_export_formats() {
+    local format_help="$TEMP_DIR/export_formats.txt"
+    
+    cat > "$format_help" << 'EOF'
+DIRECTORY SETTINGS EXPORT FORMATS
+==================================
+
+The directory management system supports the following export formats:
+
+1. STANDARD FORMAT (default):
+   directory_name=true|false
+   
+   Examples:
+   webapp=true
+   database=true
+   test-env=false
+   staging=false
+
+2. TEMPLATE FORMAT:
+   Same as standard but with additional metadata comments
+   for template creation and reuse.
+
+3. BACKUP FORMAT:
+   Includes timestamp and system information
+   for restoration purposes.
+
+IMPORT COMPATIBILITY:
+• All export formats can be imported
+• Comments and metadata are ignored during import
+• Only directory_name=true|false lines are processed
+• Directories not found in target system are skipped
+
+FILE LOCATIONS:
+• Exports saved in script directory by default
+• Templates saved in templates/ subdirectory
+• Backups saved with timestamp prefix
+
+BEST PRACTICES:
+• Use descriptive filenames with dates
+• Test imports on non-production systems first
+• Keep template files for reusing configurations
+• Create backups before major configuration changes
+EOF
+    
+    dialog --title "Export Formats Help" \
+           --textbox "$format_help" \
+           $DIALOG_HEIGHT $DIALOG_WIDTH
+    
+    rm -f "$format_help"
+}
+
+# Backup current settings
+backup_current_settings() {
+    log_tui "Creating backup of current directory settings"
+    
+    local backup_file="$SCRIPT_DIR/dirlist-backup-$(date +%Y%m%d-%H%M%S).txt"
+    
+    if [[ -f "$SCRIPT_DIR/dirlist" ]]; then
+        cp "$SCRIPT_DIR/dirlist" "$backup_file"
+        show_info "Backup Created" "Current directory settings backed up successfully!\n\nBackup file: $backup_file\n\nThis backup can be used to restore settings if needed."
+        log_tui "Created backup of directory settings: $backup_file"
+    else
+        show_error "No Settings" "No directory list file found to backup.\n\nRun directory discovery first to create initial settings."
+    fi
+}
+
+# Advanced directory features menu
+advanced_directory_features() {
+    log_tui "Opening advanced directory features"
+    
+    while true; do
+        local choice
+        choice=$(dialog --clear --title "Advanced Directory Features" \
+                       --menu "Choose advanced feature:" \
+                       $DIALOG_HEIGHT $DIALOG_WIDTH $DIALOG_MENU_HEIGHT \
+                       "1" "Directory Size Analysis" \
+                       "2" "Backup Impact Assessment" \
+                       "3" "Directory Dependencies" \
+                       "4" "Performance Optimization" \
+                       "5" "Historical Statistics" \
+                       "6" "Custom Scripts Integration" \
+                       "0" "Return to Directory Menu" \
+                       3>&1 1>&2 2>&3)
+        
+        case $choice in
+            1) directory_size_analysis ;;
+            2) backup_impact_assessment ;;
+            3) directory_dependencies ;;
+            4) performance_optimization ;;
+            5) historical_statistics ;;
+            6) custom_scripts_integration ;;
+            0|"") break ;;
+        esac
+    done
+}
+
+# Directory size analysis
+directory_size_analysis() {
+    log_tui "Performing directory size analysis"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist || ! discover_directories_tui; then
+        return
+    fi
+    
+    load_dirlist_tui || true
+    
+    local analysis_file="$TEMP_DIR/size_analysis.txt"
+    
+    show_progress "Directory Analysis" "Analyzing directory sizes...\n\nThis may take a moment for large directories." \
+                  "echo 'Starting directory size analysis...'"
+    
+    cat > "$analysis_file" << EOF
+DIRECTORY SIZE ANALYSIS REPORT
+==============================
+
+Generated: $(date)
+Backup Directory: $BACKUP_DIR
+Total Directories Analyzed: ${#DISCOVERED_DIRS[@]}
+
+EOF
+    
+    # Analyze each directory
+    local total_enabled_size=0
+    local total_disabled_size=0
+    local -a size_data=()
+    
+    echo "DIRECTORY SIZE BREAKDOWN:" >> "$analysis_file"
+    echo "" >> "$analysis_file"
+    
+    for dir in $(printf '%s\n' "${DISCOVERED_DIRS[@]}" | sort); do
+        local dir_path="$BACKUP_DIR/$dir"
+        local status="${EXISTING_DIRLIST[$dir]:-false}"
+        local size_bytes=$(du -sb "$dir_path" 2>/dev/null | cut -f1 || echo "0")
+        local size_human=$(du -sh "$dir_path" 2>/dev/null | cut -f1 || echo "0B")
+        
+        size_data+=("$dir:$status:$size_bytes:$size_human")
+        
+        local status_icon="✗"
+        if [[ "$status" == "true" ]]; then
+            status_icon="✓"
+            total_enabled_size=$((total_enabled_size + size_bytes))
+        else
+            total_disabled_size=$((total_disabled_size + size_bytes))
+        fi
+        
+        printf "%-3s %-20s %10s\n" "$status_icon" "$dir" "$size_human" >> "$analysis_file"
+    done
+    
+    echo "" >> "$analysis_file"
+    echo "SIZE SUMMARY:" >> "$analysis_file"
+    echo "  • Total enabled size: $(numfmt --to=iec --suffix=B $total_enabled_size)" >> "$analysis_file"
+    echo "  • Total disabled size: $(numfmt --to=iec --suffix=B $total_disabled_size)" >> "$analysis_file"
+    echo "  • Total directory size: $(numfmt --to=iec --suffix=B $((total_enabled_size + total_disabled_size)))" >> "$analysis_file"
+    echo "" >> "$analysis_file"
+    
+    # Show largest directories
+    echo "LARGEST DIRECTORIES (top 5):" >> "$analysis_file"
+    printf '%s\n' "${size_data[@]}" | sort -t: -k3 -nr | head -5 | while IFS=':' read -r dir status size_bytes size_human; do
+        local status_text="disabled"
+        if [[ "$status" == "true" ]]; then
+            status_text="enabled"
+        fi
+        echo "  • $dir ($size_human, $status_text)" >> "$analysis_file"
+    done
+    
+    echo "" >> "$analysis_file"
+    echo "RECOMMENDATIONS:" >> "$analysis_file"
+    
+    # Generate recommendations based on analysis
+    local large_disabled_count=$(printf '%s\n' "${size_data[@]}" | awk -F: '$2=="false" && $3>1073741824 {count++} END {print count+0}')
+    local small_enabled_count=$(printf '%s\n' "${size_data[@]}" | awk -F: '$2=="true" && $3<10485760 {count++} END {print count+0}')
+    
+    if [[ $large_disabled_count -gt 0 ]]; then
+        echo "  • Consider enabling $large_disabled_count large disabled directories if they contain important data" >> "$analysis_file"
+    fi
+    
+    if [[ $small_enabled_count -gt 0 ]]; then
+        echo "  • $small_enabled_count small directories are enabled - verify they need backup" >> "$analysis_file"
+    fi
+    
+    local backup_ratio=$((total_enabled_size * 100 / (total_enabled_size + total_disabled_size)))
+    echo "  • Current backup ratio: ${backup_ratio}% of total directory size" >> "$analysis_file"
+    
+    if [[ $backup_ratio -gt 80 ]]; then
+        echo "  • High backup ratio - consider disabling some directories to reduce backup time" >> "$analysis_file"
+    elif [[ $backup_ratio -lt 20 ]]; then
+        echo "  • Low backup ratio - verify important directories are enabled" >> "$analysis_file"
+    fi
+    
+    dialog --title "Directory Size Analysis" \
+           --textbox "$analysis_file" \
+           $DIALOG_HEIGHT $DIALOG_WIDTH
+    
+    rm -f "$analysis_file"
+}
+
+# Placeholder functions for other advanced features
+backup_impact_assessment() {
+    show_info "Feature Preview" "Backup Impact Assessment will analyze:\n\n• Estimated backup time per directory\n• Network bandwidth requirements\n• Storage space needed\n• Resource utilization patterns\n\nThis feature will be available in a future update."
+}
+
+directory_dependencies() {
+    show_info "Feature Preview" "Directory Dependencies will show:\n\n• Docker service dependencies\n• Volume mount relationships\n• Network connections\n• Backup order recommendations\n\nThis feature will be available in a future update."
+}
+
+performance_optimization() {
+    show_info "Feature Preview" "Performance Optimization will provide:\n\n• Backup parallelization suggestions\n• Directory prioritization\n• Resource allocation recommendations\n• Schedule optimization\n\nThis feature will be available in a future update."
+}
+
+historical_statistics() {
+    show_info "Feature Preview" "Historical Statistics will display:\n\n• Backup frequency per directory\n• Size growth trends\n• Success/failure rates\n• Performance metrics\n\nThis feature will be available in a future update."
+}
+
+custom_scripts_integration() {
+    show_info "Feature Preview" "Custom Scripts Integration will support:\n\n• Pre/post backup hooks\n• Custom validation scripts\n• Directory-specific handlers\n• Integration with external tools\n\nThis feature will be available in a future update."
+}
+
+# Directory troubleshooting menu
+directory_troubleshooting() {
+    log_tui "Opening directory troubleshooting menu"
+    
+    while true; do
+        local choice
+        choice=$(dialog --clear --title "Directory Troubleshooting & Diagnostics" \
+                       --menu "Choose troubleshooting option:" \
+                       $DIALOG_HEIGHT $DIALOG_WIDTH $DIALOG_MENU_HEIGHT \
+                       "1" "Diagnose Directory Issues" \
+                       "2" "Validate Directory Structure" \
+                       "3" "Check Docker Compose Files" \
+                       "4" "Test Directory Permissions" \
+                       "5" "Verify Backup Configuration" \
+                       "6" "Common Issues & Solutions" \
+                       "7" "Reset Directory Configuration" \
+                       "0" "Return to Directory Menu" \
+                       3>&1 1>&2 2>&3)
+        
+        case $choice in
+            1) diagnose_directory_issues ;;
+            2) validate_directory_structure ;;
+            3) check_compose_files ;;
+            4) test_directory_permissions ;;
+            5) verify_backup_configuration ;;
+            6) show_common_solutions ;;
+            7) reset_directory_configuration ;;
+            0|"") break ;;
+        esac
+    done
+}
+
+# Diagnose directory issues
+diagnose_directory_issues() {
+    log_tui "Running directory diagnostics"
+    
+    # Load configuration and discover directories
+    if ! load_config_for_dirlist; then
+        return
+    fi
+    
+    local diagnostics_file="$TEMP_DIR/directory_diagnostics.txt"
+    
+    cat > "$diagnostics_file" << EOF
+DIRECTORY DIAGNOSTICS REPORT
+============================
+
+Generated: $(date)
+Backup Directory: $BACKUP_DIR
+
+EOF
+    
+    # Check backup directory accessibility
+    echo "BACKUP DIRECTORY CHECKS:" >> "$diagnostics_file"
+    
+    if [[ -d "$BACKUP_DIR" ]]; then
+        echo "  ✓ Backup directory exists: $BACKUP_DIR" >> "$diagnostics_file"
+        
+        if [[ -r "$BACKUP_DIR" ]]; then
+            echo "  ✓ Directory is readable" >> "$diagnostics_file"
+        else
+            echo "  ✗ Directory is not readable" >> "$diagnostics_file"
+        fi
+        
+        if [[ -w "$BACKUP_DIR" ]]; then
+            echo "  ✓ Directory is writable" >> "$diagnostics_file"
+        else
+            echo "  ✗ Directory is not writable" >> "$diagnostics_file"
+        fi
+        
+        local dir_count=$(find "$BACKUP_DIR" -maxdepth 1 -type d | wc -l)
+        echo "  • Subdirectories found: $((dir_count - 1))" >> "$diagnostics_file"
+    else
+        echo "  ✗ Backup directory does not exist: $BACKUP_DIR" >> "$diagnostics_file"
+    fi
+    
+    echo "" >> "$diagnostics_file"
+    
+    # Discover and check directories
+    if discover_directories_tui; then
+        echo "DOCKER COMPOSE DIRECTORY CHECKS:" >> "$diagnostics_file"
+        echo "  • Total Docker compose directories found: ${#DISCOVERED_DIRS[@]}" >> "$diagnostics_file"
+        echo "" >> "$diagnostics_file"
+        
+        local issues_found=0
+        
+        for dir in "${DISCOVERED_DIRS[@]}"; do
+            local dir_path="$BACKUP_DIR/$dir"
+            echo "Checking: $dir" >> "$diagnostics_file"
+            
+            # Check directory accessibility
+            if [[ ! -r "$dir_path" ]]; then
+                echo "  ✗ Directory not readable: $dir_path" >> "$diagnostics_file"
+                ((issues_found++))
+            fi
+            
+            # Check for compose files
+            local compose_files=()
+            for compose_file in "docker-compose.yml" "docker-compose.yaml" "compose.yml" "compose.yaml"; do
+                if [[ -f "$dir_path/$compose_file" ]]; then
+                    compose_files+=("$compose_file")
+                fi
+            done
+            
+            if [[ ${#compose_files[@]} -gt 0 ]]; then
+                echo "  ✓ Compose files: ${compose_files[*]}" >> "$diagnostics_file"
+            else
+                echo "  ✗ No compose files found" >> "$diagnostics_file"
+                ((issues_found++))
+            fi
+            
+            # Check for common issues
+            if [[ -f "$dir_path/.env" ]]; then
+                echo "  ✓ Environment file present" >> "$diagnostics_file"
+            else
+                echo "  ⚠ No .env file (may be normal)" >> "$diagnostics_file"
+            fi
+            
+            echo "" >> "$diagnostics_file"
+        done
+        
+        echo "DIAGNOSTICS SUMMARY:" >> "$diagnostics_file"
+        echo "  • Directories scanned: ${#DISCOVERED_DIRS[@]}" >> "$diagnostics_file"
+        echo "  • Issues found: $issues_found" >> "$diagnostics_file"
+        
+        if [[ $issues_found -eq 0 ]]; then
+            echo "  ✓ All directories appear healthy" >> "$diagnostics_file"
+        else
+            echo "  ⚠ Issues need attention" >> "$diagnostics_file"
+        fi
+    else
+        echo "DOCKER COMPOSE DIRECTORY CHECKS:" >> "$diagnostics_file"
+        echo "  ✗ Failed to discover directories" >> "$diagnostics_file"
+        echo "  • Check backup directory configuration" >> "$diagnostics_file"
+        echo "  • Verify directory contains Docker compose projects" >> "$diagnostics_file"
+    fi
+    
+    echo "" >> "$diagnostics_file"
+    
+    # Check dirlist file
+    echo "DIRECTORY LIST FILE CHECKS:" >> "$diagnostics_file"
+    local dirlist_file="$SCRIPT_DIR/dirlist"
+    
+    if [[ -f "$dirlist_file" ]]; then
+        echo "  ✓ Directory list file exists: $dirlist_file" >> "$diagnostics_file"
+        
+        local total_entries=$(grep -c "=" "$dirlist_file" 2>/dev/null || echo "0")
+        local enabled_entries=$(grep -c "=true" "$dirlist_file" 2>/dev/null || echo "0")
+        local disabled_entries=$(grep -c "=false" "$dirlist_file" 2>/dev/null || echo "0")
+        
+        echo "  • Total entries: $total_entries" >> "$diagnostics_file"
+        echo "  • Enabled: $enabled_entries" >> "$diagnostics_file"
+        echo "  • Disabled: $disabled_entries" >> "$diagnostics_file"
+        
+        # Validate format
+        local invalid_lines=$(grep -v "^#" "$dirlist_file" | grep -v "^$" | grep -v "^[^=]*=(true|false)$" | wc -l)
+        if [[ $invalid_lines -gt 0 ]]; then
+            echo "  ✗ Invalid format lines: $invalid_lines" >> "$diagnostics_file"
+        else
+            echo "  ✓ File format is valid" >> "$diagnostics_file"
+        fi
+    else
+        echo "  ⚠ Directory list file not found (will be created)" >> "$diagnostics_file"
+    fi
+    
+    dialog --title "Directory Diagnostics Report" \
+           --textbox "$diagnostics_file" \
+           $DIALOG_HEIGHT $DIALOG_WIDTH
+    
+    rm -f "$diagnostics_file"
+}
+
+# Placeholder functions for additional troubleshooting features
+validate_directory_structure() {
+    show_info "Feature Preview" "Directory Structure Validation will check:\n\n• Docker Compose file syntax\n• Volume mount paths\n• Network configurations\n• Service dependencies\n\nThis feature will be available in a future update."
+}
+
+check_compose_files() {
+    show_info "Feature Preview" "Docker Compose File Analysis will verify:\n\n• YAML syntax validation\n• Service configuration\n• Volume and network definitions\n• Environment variable usage\n\nThis feature will be available in a future update."
+}
+
+test_directory_permissions() {
+    show_info "Feature Preview" "Directory Permissions Testing will check:\n\n• Read/write permissions\n• User/group ownership\n• Docker daemon access\n• Backup process permissions\n\nThis feature will be available in a future update."
+}
+
+verify_backup_configuration() {
+    show_info "Feature Preview" "Backup Configuration Verification will validate:\n\n• Restic repository access\n• Backup directory settings\n• Environment variables\n• Script permissions\n\nThis feature will be available in a future update."
+}
+
+show_common_solutions() {
+    local solutions_file="$TEMP_DIR/common_solutions.txt"
+    
+    cat > "$solutions_file" << 'EOF'
+COMMON DIRECTORY ISSUES & SOLUTIONS
+====================================
+
+PROBLEM: No directories found
+SOLUTIONS:
+• Verify BACKUP_DIR in configuration file
+• Check that directories contain docker-compose.yml files
+• Ensure proper file naming (docker-compose.yml/yaml, compose.yml/yaml)
+• Verify directory permissions
+
+PROBLEM: Directory list file format errors
+SOLUTIONS:
+• Use format: directory_name=true or directory_name=false
+• Remove invalid characters or extra spaces
+• Use the TUI validation feature
+• Recreate file using directory selection interface
+
+PROBLEM: Changes not taking effect
+SOLUTIONS:
+• Ensure dirlist file is saved properly
+• Check file permissions (should be readable)
+• Restart backup processes if they're running
+• Verify backup script is using the correct dirlist file
+
+PROBLEM: Permission denied errors
+SOLUTIONS:
+• Check directory ownership and permissions
+• Ensure backup user has read access to directories
+• Verify Docker daemon permissions
+• Consider using sudo if necessary
+
+PROBLEM: Backup includes wrong directories
+SOLUTIONS:
+• Review directory selection carefully
+• Use directory status view to verify settings
+• Check for typos in directory names
+• Synchronize directory list with filesystem
+
+PROBLEM: Large backup times
+SOLUTIONS:
+• Use directory size analysis to identify large directories
+• Disable unnecessary directories
+• Consider backing up large directories separately
+• Use incremental backup features
+
+PROBLEM: Missing directories after system changes
+SOLUTIONS:
+• Run directory synchronization
+• Check if directories were moved or renamed
+• Update BACKUP_DIR if directory structure changed
+• Use troubleshooting diagnostics to identify issues
+
+For additional help:
+• Check system logs for error messages
+• Run directory diagnostics for detailed analysis
+• Validate backup configuration
+• Test with a small subset of directories first
+EOF
+    
+    dialog --title "Common Issues & Solutions" \
+           --textbox "$solutions_file" \
+           $DIALOG_HEIGHT $DIALOG_WIDTH
+    
+    rm -f "$solutions_file"
+}
+
+reset_directory_configuration() {
+    log_tui "Resetting directory configuration"
+    
+    local reset_choice
+    reset_choice=$(dialog --clear --title "Reset Directory Configuration" \
+                         --menu "Choose reset option:" \
+                         $DIALOG_HEIGHT $DIALOG_WIDTH $DIALOG_MENU_HEIGHT \
+                         "1" "Reset to defaults (enable all directories)" \
+                         "2" "Clear all settings (disable all directories)" \
+                         "3" "Recreate from filesystem scan" \
+                         "4" "Delete dirlist file (will be recreated)" \
+                         3>&1 1>&2 2>&3)
+    
+    case $reset_choice in
+        1)
+            if show_confirm "Reset to Defaults" "Reset directory configuration to defaults?\n\n⚠ This will enable ALL discovered directories for backup.\n\nContinue?"; then
+                if load_config_for_dirlist && discover_directories_tui; then
+                    local -A reset_settings
+                    for dir in "${DISCOVERED_DIRS[@]}"; do
+                        reset_settings["$dir"]="true"
+                    done
+                    save_directory_settings reset_settings
+                fi
+            fi
+            ;;
+        2)
+            if show_confirm "Clear All Settings" "Clear all directory settings?\n\n⚠ This will disable ALL directories for backup.\nNo directories will be backed up until re-enabled.\n\nContinue?"; then
+                if load_config_for_dirlist && discover_directories_tui; then
+                    local -A reset_settings
+                    for dir in "${DISCOVERED_DIRS[@]}"; do
+                        reset_settings["$dir"]="false"
+                    done
+                    save_directory_settings reset_settings
+                fi
+            fi
+            ;;
+        3)
+            if show_confirm "Recreate from Scan" "Recreate directory list from filesystem scan?\n\nThis will:\n• Discover all current directories\n• Remove old entries\n• Add new directories as disabled\n\nContinue?"; then
+                synchronize_directory_list
+            fi
+            ;;
+        4)
+            if show_confirm "Delete Dirlist File" "Delete the dirlist file?\n\n⚠ This will remove all directory settings.\nFile will be recreated on next directory operation.\n\nContinue?"; then
+                local dirlist_file="$SCRIPT_DIR/dirlist"
+                if [[ -f "$dirlist_file" ]]; then
+                    rm -f "$dirlist_file"
+                    show_info "File Deleted" "Directory list file deleted successfully.\n\nFile: $dirlist_file\n\nA new file will be created when you next configure directories."
+                    log_tui "Deleted directory list file: $dirlist_file"
+                else
+                    show_info "No File Found" "Directory list file does not exist.\n\nFile: $dirlist_file"
+                fi
+            fi
+            ;;
+    esac
+}
+
+# Main directory management interface
 directory_management() {
-    show_info "Coming Soon" "Directory List Management\nwill be implemented next."
+    log_tui "Opening directory list management"
+    
+    while true; do
+        local choice
+        choice=$(dialog --clear --title "Directory List Management" \
+                       --menu "Comprehensive directory management for backups:" \
+                       $DIALOG_HEIGHT $DIALOG_WIDTH $DIALOG_MENU_HEIGHT \
+                       "1" "View Directory Status" \
+                       "2" "Select Directories for Backup" \
+                       "3" "Bulk Enable/Disable Operations" \
+                       "4" "Synchronize Directory List" \
+                       "5" "Import/Export Directory Settings" \
+                       "6" "Troubleshooting & Diagnostics" \
+                       "7" "Advanced Features" \
+                       "8" "Validate Directory List Format" \
+                       "0" "Return to Main Menu" \
+                       3>&1 1>&2 2>&3)
+        
+        case $choice in
+            1) view_directory_status_tui ;;
+            2) select_directories_tui ;;
+            3) bulk_operations_menu ;;
+            4) synchronize_directory_list ;;
+            5) import_export_menu ;;
+            6) directory_troubleshooting ;;
+            7) advanced_directory_features ;;
+            8) validate_dirlist_format ;;
+            0|"") break ;;
+        esac
+    done
 }
 
 monitoring_menu() {
