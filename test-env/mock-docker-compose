@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# Mock docker compose command for testing SIGKILL timing
+
+if [[ "$1" == "ps" ]]; then
+    # Simulate container status checking
+    if [[ -f "/tmp/test_containers_running" ]]; then
+        # Read the current container count from file
+        cat "/tmp/test_containers_running"
+    else
+        echo ""  # No containers running
+    fi
+elif [[ "$1" == "stop" ]]; then
+    # Simulate stop command with timeout behavior
+    echo "Stopping containers..." >&2
+    
+    # Simulate initial container state (4 containers)
+    echo -e "webserver\nbroker\ngotenberg\ntika" > /tmp/test_containers_running
+    
+    # Simulate timeout scenario (exit code 124 for timeout)
+    sleep 1
+    
+    # After "timeout", simulate gradual container stopping
+    # First, 3 containers stop quickly
+    echo -e "gotenberg" > /tmp/test_containers_running
+    
+    # Simulate the problematic scenario: gotenberg takes longer to stop
+    # This will be handled by the improved timing logic
+    (
+        sleep 5  # Simulate SIGKILL taking 5 seconds to fully clean up
+        rm -f /tmp/test_containers_running  # All containers finally stopped
+    ) &
+    
+    # Return timeout exit code to trigger the enhanced timing logic
+    exit 124
+fi

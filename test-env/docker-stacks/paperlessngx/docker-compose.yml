@@ -1,0 +1,9 @@
+services:
+  webserver:
+    image: nginx:alpine
+  broker:
+    image: redis:alpine
+  gotenberg:
+    image: gotenberg/gotenberg:7
+  tika:
+    image: apache/tika:latest

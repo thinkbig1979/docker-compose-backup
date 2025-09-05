@@ -1,0 +1,6 @@
+# Auto-generated directory list for selective backup (TEST MODE)
+# Edit this file to enable/disable backup for each directory
+# true = backup enabled, false = skip backup
+app1=true
+app2=true
+app3=true
