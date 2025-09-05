@@ -1,8 +1,27 @@
-# Docker Stack Selective Sequential Backup Script
+# Docker Stack 3-Stage Backup System
 
-A comprehensive bash script for selective, sequential backup of Docker compose stacks using restic. This script implements a two-phase approach: directory discovery with selective control, followed by sequential processing of enabled directories.
+A comprehensive 3-stage backup solution for Docker compose stacks using restic with cloud synchronization. This system combines local backup speed with remote cloud safety through a hybrid approach.
 
-**Self-Contained Design**: This script is designed to be completely portable and self-contained within a single directory, with its configuration file located alongside the script.
+## 3-Stage Backup Architecture
+
+This backup system implements a sophisticated 3-stage approach for optimal performance and safety:
+
+**Stage 1: Local Restic Backup** (`docker-backup.sh`)
+- Creates fast, incremental restic backups of Docker stacks to local repository
+- Selective, sequential processing with smart Docker stack management
+- Local storage for speed and immediate recovery capability
+
+**Stage 2: Cloud Synchronization** (`rclone_backup.sh`)
+- Syncs the local restic repository to remote cloud storage using rclone
+- Offsite backup protection for disaster recovery
+- Efficient - only syncs the restic repository, not individual files
+
+**Stage 3: Repository Restore** (`rclone_restore.sh`)
+- Restores the entire restic repository from cloud back to local storage
+- Enables recovery of the backup system itself
+- Foundation for data restoration workflows
+
+**Self-Contained Design**: This system is designed to be completely portable and self-contained within a single directory, with all configuration files located alongside the scripts.
 
 ## Features
 
@@ -21,7 +40,42 @@ A comprehensive bash script for selective, sequential backup of Docker compose s
 - **Restic Integration**: Uses restic for reliable, incremental backups with visible real-time output and comprehensive tagging
 - **Flexible Configuration**: Supports both config file and environment variable configuration with automatic fallback
 
-## How It Works
+## Complete Backup Workflow
+
+### Stage 1: Local Restic Backup (`docker-backup.sh`)
+This stage handles the primary backup operation:
+1. **Directory Scanning**: Discovers Docker compose stacks in the target directory
+2. **Selective Processing**: Uses `.dirlist` file to control which stacks get backed up
+3. **Smart Stack Management**: Records initial stack states and only stops/starts containers that were originally running
+4. **Restic Backup**: Creates incremental backups to a local restic repository
+5. **Sequential Processing**: Processes one directory at a time for safety and control
+
+### Stage 2: Cloud Synchronization (`rclone_backup.sh`)
+This stage provides offsite protection:
+1. **Repository Sync**: Syncs the entire local restic repository to cloud storage
+2. **Efficient Transfer**: Only transfers changed repository data, not individual files
+3. **Cloud Storage**: Provides disaster recovery capability with offsite storage
+4. **Incremental Sync**: Uses rclone's efficient sync for bandwidth optimization
+
+### Stage 3: Repository Restore (`rclone_restore.sh`)
+This stage enables disaster recovery:
+1. **Cloud Download**: Downloads the complete restic repository from cloud storage
+2. **Local Restoration**: Restores the repository to local storage
+3. **Recovery Foundation**: Prepares the system for data restoration using standard restic commands
+
+### Complete Usage Pattern
+```bash
+# Daily: Run Stage 1 (local backup)
+./docker-backup.sh
+
+# Daily/Weekly: Run Stage 2 (cloud sync) 
+./rclone_backup.sh
+
+# Disaster Recovery: Run Stage 3 (repository restore)
+./rclone_restore.sh
+```
+
+## Local Backup Details (Stage 1)
 
 ### Two-Phase Approach
 
@@ -69,6 +123,7 @@ directory3=false
 - Linux/Unix system with bash 4.0+
 - Docker and Docker Compose installed
 - `restic` backup tool installed and configured
+- `rclone` command-line tool installed and configured with remote storage
 - `timeout` command (usually part of coreutils)
 
 ### Permissions
@@ -77,10 +132,18 @@ directory3=false
 - Docker permissions (usually requires user to be in `docker` group)
 - Read access to the script directory for configuration file
 
-### Restic Configuration
-The script requires restic configuration to be specified in the `backup.conf` file:
-- `RESTIC_REPOSITORY`: Path or URL to the restic repository
+### Configuration Requirements
+
+**Restic Configuration** (for Stage 1 - Local Backup)
+The `docker-backup.sh` script requires restic configuration in the `backup.conf` file:
+- `RESTIC_REPOSITORY`: Path to the local restic repository (e.g., `/home/backup/resticbackup`)
 - `RESTIC_PASSWORD`: Password for the restic repository
+
+**Rclone Configuration** (for Stages 2 & 3 - Cloud Sync/Restore)
+The `rclone_backup.sh` and `rclone_restore.sh` scripts require:
+- Configured rclone remote (set up with `rclone config`)
+- Update `REMOTE_NAME` and paths in the rclone scripts
+- Network connectivity to cloud storage provider
 
 **Fallback Support**: Environment variables `RESTIC_REPOSITORY` and `RESTIC_PASSWORD` are used as fallback if not specified in the config file (for backward compatibility). The script will automatically detect and use environment variables when config file values are empty.
 

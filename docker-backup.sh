@@ -20,18 +20,30 @@ readonly DIRLIST_FILE="$SCRIPT_DIR/dirlist"
 DEFAULT_BACKUP_TIMEOUT=3600
 DEFAULT_DOCKER_TIMEOUT=30
 
+# Phase 1 Feature Flags - Security & Verification
+ENABLE_PASSWORD_FILE=false
+ENABLE_PASSWORD_COMMAND=false
+ENABLE_BACKUP_VERIFICATION=false
+VERIFICATION_DEPTH="files"
+MIN_DISK_SPACE_MB=1024
+
 # Global variables
 BACKUP_DIR=""
 BACKUP_TIMEOUT="${DEFAULT_BACKUP_TIMEOUT}"
 DOCKER_TIMEOUT="${DEFAULT_DOCKER_TIMEOUT}"
 RESTIC_REPOSITORY=""
 RESTIC_PASSWORD=""
+RESTIC_PASSWORD_FILE=""
+RESTIC_PASSWORD_COMMAND=""
 HOSTNAME=""
 KEEP_DAILY=""
 KEEP_WEEKLY=""
 KEEP_MONTHLY=""
 KEEP_YEARLY=""
 AUTO_PRUNE=""
+# Phase 1 variables
+PASSWORD_FILE=""
+PASSWORD_COMMAND=""
 VERBOSE=false
 DRY_RUN=false
 
@@ -223,6 +235,29 @@ load_config() {
             RESTIC_PASSWORD)
                 RESTIC_PASSWORD="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
                 ;;
+            RESTIC_PASSWORD_FILE)
+                RESTIC_PASSWORD_FILE="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                PASSWORD_FILE="$RESTIC_PASSWORD_FILE"
+                ;;
+            RESTIC_PASSWORD_COMMAND)
+                RESTIC_PASSWORD_COMMAND="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                PASSWORD_COMMAND="$RESTIC_PASSWORD_COMMAND"
+                ;;
+            ENABLE_PASSWORD_FILE)
+                ENABLE_PASSWORD_FILE="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            ENABLE_PASSWORD_COMMAND)
+                ENABLE_PASSWORD_COMMAND="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            ENABLE_BACKUP_VERIFICATION)
+                ENABLE_BACKUP_VERIFICATION="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            VERIFICATION_DEPTH)
+                VERIFICATION_DEPTH="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            MIN_DISK_SPACE_MB)
+                MIN_DISK_SPACE_MB="$value"
+                ;;
             HOSTNAME)
                 HOSTNAME="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
                 ;;
@@ -285,9 +320,23 @@ validate_config() {
         return $EXIT_CONFIG_ERROR
     fi
     
-    if [[ -z "$RESTIC_PASSWORD" ]]; then
-        log_error "RESTIC_PASSWORD not specified in configuration"
+    # Enhanced password validation - now supports multiple methods
+    local password_methods=0
+    if [[ -n "$RESTIC_PASSWORD" ]]; then
+        password_methods=$((password_methods + 1))
+    fi
+    if [[ "$ENABLE_PASSWORD_FILE" == "true" && -n "$PASSWORD_FILE" ]]; then
+        password_methods=$((password_methods + 1))
+    fi
+    if [[ "$ENABLE_PASSWORD_COMMAND" == "true" && -n "$PASSWORD_COMMAND" ]]; then
+        password_methods=$((password_methods + 1))
+    fi
+    
+    if [[ $password_methods -eq 0 ]]; then
+        log_error "No password method configured. Set RESTIC_PASSWORD, or enable password file/command"
         return $EXIT_CONFIG_ERROR
+    elif [[ $password_methods -gt 1 ]]; then
+        log_warn "Multiple password methods configured. Priority: password file > password command > direct password"
     fi
     
     # Validate retention policy numeric parameters
@@ -317,6 +366,37 @@ validate_config() {
         AUTO_PRUNE="false"
     fi
     
+    # Validate Phase 1 feature flags
+    for flag in ENABLE_PASSWORD_FILE ENABLE_PASSWORD_COMMAND ENABLE_BACKUP_VERIFICATION; do
+        local flag_value
+        case "$flag" in
+            ENABLE_PASSWORD_FILE) flag_value="$ENABLE_PASSWORD_FILE" ;;
+            ENABLE_PASSWORD_COMMAND) flag_value="$ENABLE_PASSWORD_COMMAND" ;;
+            ENABLE_BACKUP_VERIFICATION) flag_value="$ENABLE_BACKUP_VERIFICATION" ;;
+        esac
+        
+        if [[ -n "$flag_value" ]] && ! [[ "$flag_value" =~ ^(true|false)$ ]]; then
+            log_warn "Invalid $flag value: $flag_value, must be 'true' or 'false'. Using default: false"
+            case "$flag" in
+                ENABLE_PASSWORD_FILE) ENABLE_PASSWORD_FILE="false" ;;
+                ENABLE_PASSWORD_COMMAND) ENABLE_PASSWORD_COMMAND="false" ;;
+                ENABLE_BACKUP_VERIFICATION) ENABLE_BACKUP_VERIFICATION="false" ;;
+            esac
+        fi
+    done
+    
+    # Validate verification depth
+    if [[ -n "$VERIFICATION_DEPTH" ]] && ! [[ "$VERIFICATION_DEPTH" =~ ^(metadata|files|data)$ ]]; then
+        log_warn "Invalid VERIFICATION_DEPTH value: $VERIFICATION_DEPTH, must be 'metadata', 'files', or 'data'. Using default: files"
+        VERIFICATION_DEPTH="files"
+    fi
+    
+    # Validate minimum disk space
+    if ! [[ "$MIN_DISK_SPACE_MB" =~ ^[0-9]+$ ]] || [[ "$MIN_DISK_SPACE_MB" -lt 100 ]]; then
+        log_warn "Invalid MIN_DISK_SPACE_MB value: $MIN_DISK_SPACE_MB, using default: 1024"
+        MIN_DISK_SPACE_MB=1024
+    fi
+    
     log_info "Configuration validation completed"
     log_debug "BACKUP_DIR: $BACKUP_DIR"
     log_debug "BACKUP_TIMEOUT: $BACKUP_TIMEOUT"
@@ -331,6 +411,260 @@ validate_config() {
     log_debug "AUTO_PRUNE: ${AUTO_PRUNE:-[UNSET - defaults to false]}"
     
     return $EXIT_SUCCESS
+}
+
+#######################################
+# Phase 1: Security & Validation Functions
+#######################################
+
+# Enhanced input validation and sanitization
+sanitize_input() {
+    local input="$1"
+    local type="${2:-path}"
+    
+    case "$type" in
+        "path")
+            # Remove potential path traversal attempts and dangerous characters
+            echo "$input" | sed 's/\.\.\///g; s/[;&|`$()]//g'
+            ;;
+        "filename")
+            # Remove dangerous characters for filenames
+            echo "$input" | sed 's/[;&|`$()\/\\]//g'
+            ;;
+        "command")
+            # Basic command sanitization (for password commands)
+            echo "$input" | sed 's/[;&|`]//g'
+            ;;
+        *)
+            echo "$input"
+            ;;
+    esac
+}
+
+# Check file permissions for security
+check_file_permissions() {
+    local file_path="$1"
+    local expected_mode="$2"
+    
+    if [[ ! -f "$file_path" ]]; then
+        return 1
+    fi
+    
+    local actual_mode
+    actual_mode="$(stat -c %a "$file_path" 2>/dev/null)"
+    
+    if [[ -z "$actual_mode" ]]; then
+        log_error "Cannot determine permissions for: $file_path"
+        return 1
+    fi
+    
+    # Check if permissions are too open
+    local first_digit="${actual_mode:0:1}"
+    if [[ "$first_digit" -gt 6 ]]; then
+        log_warn "File has overly permissive permissions: $file_path ($actual_mode)"
+        log_warn "Consider using 'chmod 600 $file_path' for better security"
+    fi
+    
+    return 0
+}
+
+# Enhanced password handling with multiple methods
+setup_restic_password() {
+    log_info "Setting up restic password authentication"
+    
+    # Priority order: password file > password command > direct password
+    if [[ "$ENABLE_PASSWORD_FILE" == "true" && -n "$PASSWORD_FILE" ]]; then
+        log_info "Using password file authentication"
+        
+        # Sanitize the password file path
+        PASSWORD_FILE="$(sanitize_input "$PASSWORD_FILE" "path")"
+        
+        if [[ ! -f "$PASSWORD_FILE" ]]; then
+            log_error "Password file not found: $PASSWORD_FILE"
+            return $EXIT_CONFIG_ERROR
+        fi
+        
+        if [[ ! -r "$PASSWORD_FILE" ]]; then
+            log_error "Password file not readable: $PASSWORD_FILE"
+            return $EXIT_CONFIG_ERROR
+        fi
+        
+        # Check file permissions for security
+        check_file_permissions "$PASSWORD_FILE" "600"
+        
+        # Export the password file for restic
+        export RESTIC_PASSWORD_FILE="$PASSWORD_FILE"
+        unset RESTIC_PASSWORD  # Clear password variable for security
+        log_debug "Using password file: ${PASSWORD_FILE:0:20}..."
+        
+    elif [[ "$ENABLE_PASSWORD_COMMAND" == "true" && -n "$PASSWORD_COMMAND" ]]; then
+        log_info "Using password command authentication"
+        
+        # Sanitize the password command
+        PASSWORD_COMMAND="$(sanitize_input "$PASSWORD_COMMAND" "command")"
+        
+        # Test that the command works
+        local test_password
+        if ! test_password="$(eval "$PASSWORD_COMMAND" 2>/dev/null)"; then
+            log_error "Password command failed to execute: $PASSWORD_COMMAND"
+            return $EXIT_CONFIG_ERROR
+        fi
+        
+        if [[ -z "$test_password" ]]; then
+            log_error "Password command returned empty password: $PASSWORD_COMMAND"
+            return $EXIT_CONFIG_ERROR
+        fi
+        
+        # Export the password command for restic
+        export RESTIC_PASSWORD_COMMAND="$PASSWORD_COMMAND"
+        unset RESTIC_PASSWORD  # Clear password variable for security
+        log_debug "Using password command: ${PASSWORD_COMMAND:0:20}..."
+        
+    elif [[ -n "$RESTIC_PASSWORD" ]]; then
+        log_info "Using direct password authentication"
+        export RESTIC_PASSWORD
+        log_debug "Using direct password authentication"
+        
+    else
+        log_error "No valid password method configured"
+        return $EXIT_CONFIG_ERROR
+    fi
+    
+    return $EXIT_SUCCESS
+}
+
+# Disk space monitoring
+check_disk_space() {
+    local path="$1"
+    local min_space_mb="${2:-$MIN_DISK_SPACE_MB}"
+    
+    log_debug "Checking disk space for: $path (minimum: ${min_space_mb}MB)"
+    
+    if [[ ! -d "$path" ]]; then
+        log_error "Path does not exist for disk space check: $path"
+        return 1
+    fi
+    
+    # Get available space in MB
+    local available_mb
+    available_mb="$(df -BM "$path" | awk 'NR==2 {print $4}' | sed 's/M//')"
+    
+    if [[ -z "$available_mb" || ! "$available_mb" =~ ^[0-9]+$ ]]; then
+        log_warn "Cannot determine available disk space for: $path"
+        return 0  # Don't fail on disk space check errors
+    fi
+    
+    log_debug "Available disk space: ${available_mb}MB"
+    
+    if [[ "$available_mb" -lt "$min_space_mb" ]]; then
+        log_error "Insufficient disk space: ${available_mb}MB available, ${min_space_mb}MB required"
+        return 1
+    fi
+    
+    log_debug "Disk space check passed: ${available_mb}MB available"
+    return 0
+}
+
+# Repository health check
+check_repository_health() {
+    log_info "Performing repository health check"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would perform repository health check"
+        return $EXIT_SUCCESS
+    fi
+    
+    # Check if repository is accessible
+    if ! restic snapshots --quiet >/dev/null 2>&1; then
+        log_error "Repository health check failed: cannot access repository"
+        return $EXIT_BACKUP_ERROR
+    fi
+    
+    # Check repository integrity (quick check)
+    local check_output
+    if ! check_output="$(restic check --read-data-subset=1% 2>&1)"; then
+        log_warn "Repository integrity check found issues:"
+        echo "$check_output" | while IFS= read -r line; do
+            log_warn "  $line"
+        done
+        return $EXIT_BACKUP_ERROR
+    fi
+    
+    log_info "Repository health check completed successfully"
+    return $EXIT_SUCCESS
+}
+
+# Backup verification function
+verify_backup() {
+    local dir_name="$1"
+    local verification_depth="${2:-$VERIFICATION_DEPTH}"
+    
+    if [[ "$ENABLE_BACKUP_VERIFICATION" != "true" ]]; then
+        log_debug "Backup verification disabled, skipping for: $dir_name"
+        return $EXIT_SUCCESS
+    fi
+    
+    log_info "Verifying backup for: $dir_name (depth: $verification_depth)"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would verify backup for: $dir_name"
+        return $EXIT_SUCCESS
+    fi
+    
+    # Get the latest snapshot for this directory
+    local latest_snapshot
+    latest_snapshot="$(restic snapshots --tag "$dir_name" --latest 1 --json 2>/dev/null | jq -r '.[0].id // empty' 2>/dev/null)"
+    
+    if [[ -z "$latest_snapshot" ]]; then
+        log_error "Cannot find latest snapshot for verification: $dir_name"
+        return $EXIT_BACKUP_ERROR
+    fi
+    
+    log_debug "Verifying snapshot: $latest_snapshot"
+    
+    case "$verification_depth" in
+        "metadata")
+            # Quick metadata verification
+            if restic ls "$latest_snapshot" >/dev/null 2>&1; then
+                log_info "Backup verification passed (metadata): $dir_name"
+                return $EXIT_SUCCESS
+            else
+                log_error "Backup verification failed (metadata): $dir_name"
+                return $EXIT_BACKUP_ERROR
+            fi
+            ;;
+        "files")
+            # Verify file listing and basic integrity
+            local ls_output
+            if ls_output="$(restic ls "$latest_snapshot" 2>&1)"; then
+                local file_count
+                file_count="$(echo "$ls_output" | wc -l)"
+                log_info "Backup verification passed (files): $dir_name ($file_count files)"
+                return $EXIT_SUCCESS
+            else
+                log_error "Backup verification failed (files): $dir_name"
+                log_error "Verification error: $ls_output"
+                return $EXIT_BACKUP_ERROR
+            fi
+            ;;
+        "data")
+            # Deep verification with data integrity check
+            local check_output
+            if check_output="$(restic check --read-data "$latest_snapshot" 2>&1)"; then
+                log_info "Backup verification passed (data): $dir_name"
+                return $EXIT_SUCCESS
+            else
+                log_error "Backup verification failed (data): $dir_name"
+                log_error "Verification error: $check_output"
+                return $EXIT_BACKUP_ERROR
+            fi
+            ;;
+        *)
+            log_warn "Unknown verification depth: $verification_depth, using 'files'"
+            verify_backup "$dir_name" "files"
+            return $?
+            ;;
+    esac
 }
 
 #######################################
@@ -860,6 +1194,13 @@ process_directory() {
         return $EXIT_BACKUP_ERROR
     fi
     
+    # Step 2.1: Verify backup if enabled
+    if ! verify_backup "$dir_name"; then
+        log_error "Backup verification failed for directory: $dir_name"
+        # Continue with stack restart even if verification fails
+        log_warn "Continuing despite verification failure"
+    fi
+    
     # Step 2.5: Apply retention policy if configured
     if ! apply_retention_policy "$dir_name"; then
         log_warn "Retention policy failed for directory: $dir_name (continuing with stack restart)"
@@ -1072,19 +1413,13 @@ check_restic() {
     
     # Use config file values first, then check environment variables as fallback
     local repo="$RESTIC_REPOSITORY"
-    local password="$RESTIC_PASSWORD"
     
     # Check environment variables as fallback if config values are empty
     if [[ -z "$repo" ]]; then
         repo="$(printenv RESTIC_REPOSITORY || true)"
         if [[ -n "$repo" ]]; then
             log_info "Using RESTIC_REPOSITORY from environment variable (fallback)"
-        fi
-    fi
-    if [[ -z "$password" ]]; then
-        password="$(printenv RESTIC_PASSWORD || true)"
-        if [[ -n "$password" ]]; then
-            log_info "Using RESTIC_PASSWORD from environment variable (fallback)"
+            RESTIC_REPOSITORY="$repo"
         fi
     fi
     
@@ -1093,14 +1428,14 @@ check_restic() {
         return $EXIT_BACKUP_ERROR
     fi
     
-    if [[ -z "$password" ]]; then
-        log_error "RESTIC_PASSWORD not configured in config file or environment variables"
+    # Export repository
+    export RESTIC_REPOSITORY="$repo"
+    
+    # Setup password authentication using enhanced method
+    if ! setup_restic_password; then
+        log_error "Failed to setup restic password authentication"
         return $EXIT_BACKUP_ERROR
     fi
-    
-    # Export variables for restic commands
-    export RESTIC_REPOSITORY="$repo"
-    export RESTIC_PASSWORD="$password"
     
     # Test restic repository access
     if ! restic snapshots --quiet >/dev/null 2>&1; then
@@ -1164,11 +1499,17 @@ CONFIGURATION:
     Configuration is read from: $CONFIG_FILE (in script directory)
     Required: BACKUP_DIR=/path/to/backup/directory
     Required: RESTIC_REPOSITORY=/path/to/restic/repository
-    Required: RESTIC_PASSWORD=your-restic-password
+    Required: RESTIC_PASSWORD=your-restic-password (or use password file/command)
     Optional: BACKUP_TIMEOUT=3600, DOCKER_TIMEOUT=30
     Optional: HOSTNAME=custom-hostname (defaults to system hostname)
     Optional: KEEP_DAILY=7, KEEP_WEEKLY=4, KEEP_MONTHLY=12, KEEP_YEARLY=3
     Optional: AUTO_PRUNE=true (enables automatic pruning with retention policy)
+    
+    Phase 1 Security & Verification Features:
+    Optional: ENABLE_PASSWORD_FILE=true, RESTIC_PASSWORD_FILE=/path/to/file
+    Optional: ENABLE_PASSWORD_COMMAND=true, RESTIC_PASSWORD_COMMAND="command"
+    Optional: ENABLE_BACKUP_VERIFICATION=true, VERIFICATION_DEPTH=files
+    Optional: MIN_DISK_SPACE_MB=1024 (minimum free space required)
 
 DIRECTORY SELECTION:
     Edit the generated .dirlist file to control which directories are backed up:
@@ -1232,15 +1573,33 @@ main() {
     load_config || exit $?
     validate_config || exit $?
     
+    # Phase 1: Enhanced pre-flight checks
+    log_progress "=== Phase 1: Pre-flight Security and Health Checks ==="
+    
+    # Check file permissions for config file
+    check_file_permissions "$CONFIG_FILE" "600" || log_warn "Config file permissions should be more restrictive"
+    
+    # Check disk space
+    if ! check_disk_space "$BACKUP_DIR"; then
+        log_error "Insufficient disk space for backup operations"
+        exit $EXIT_VALIDATION_ERROR
+    fi
+    
     # Check prerequisites
     check_restic || exit $?
     
-    # Phase 1: Scan directories and update .dirlist
-    log_progress "=== PHASE 1: Directory Scanning ==="
+    # Repository health check
+    if ! check_repository_health; then
+        log_error "Repository health check failed"
+        exit $EXIT_BACKUP_ERROR
+    fi
+    
+    # Phase 2: Scan directories and update .dirlist
+    log_progress "=== PHASE 2: Directory Scanning ==="
     scan_directories || exit $?
     
-    # Phase 2: Sequential backup processing
-    log_progress "=== PHASE 2: Sequential Backup Processing ==="
+    # Phase 3: Sequential backup processing
+    log_progress "=== PHASE 3: Sequential Backup Processing ==="
     
     # Load directory list
     if ! load_dirlist; then
