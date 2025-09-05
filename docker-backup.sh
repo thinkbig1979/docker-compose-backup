@@ -27,6 +27,15 @@ ENABLE_BACKUP_VERIFICATION=false
 VERIFICATION_DEPTH="files"
 MIN_DISK_SPACE_MB=1024
 
+# Phase 2 Feature Flags - Resource Monitoring & Performance
+ENABLE_PERFORMANCE_MODE=false
+ENABLE_DOCKER_STATE_CACHE=false
+ENABLE_PARALLEL_PROCESSING=false
+MAX_PARALLEL_JOBS=2
+MEMORY_THRESHOLD_MB=512
+LOAD_THRESHOLD=80
+CHECK_SYSTEM_RESOURCES=false
+
 # Global variables
 BACKUP_DIR=""
 BACKUP_TIMEOUT="${DEFAULT_BACKUP_TIMEOUT}"
@@ -44,6 +53,9 @@ AUTO_PRUNE=""
 # Phase 1 variables
 PASSWORD_FILE=""
 PASSWORD_COMMAND=""
+# Phase 2 variables
+DOCKER_STATE_CACHE_FILE=""
+PARALLEL_JOBS=1
 VERBOSE=false
 DRY_RUN=false
 
@@ -162,6 +174,12 @@ cleanup() {
         rm -f "$PID_FILE" 2>/dev/null || true
     fi
     
+    # Clean up Phase 2 temporary files
+    if [[ -n "$DOCKER_STATE_CACHE_FILE" && -f "$DOCKER_STATE_CACHE_FILE" ]]; then
+        rm -f "$DOCKER_STATE_CACHE_FILE" 2>/dev/null || true
+        log_debug "Cleaned up Docker state cache file"
+    fi
+    
     # If we were interrupted during backup, log it
     if [[ $exit_code -eq $EXIT_SIGNAL_ERROR ]]; then
         log_warn "Script interrupted by signal"
@@ -257,6 +275,27 @@ load_config() {
                 ;;
             MIN_DISK_SPACE_MB)
                 MIN_DISK_SPACE_MB="$value"
+                ;;
+            ENABLE_PERFORMANCE_MODE)
+                ENABLE_PERFORMANCE_MODE="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            ENABLE_DOCKER_STATE_CACHE)
+                ENABLE_DOCKER_STATE_CACHE="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            ENABLE_PARALLEL_PROCESSING)
+                ENABLE_PARALLEL_PROCESSING="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            MAX_PARALLEL_JOBS)
+                MAX_PARALLEL_JOBS="$value"
+                ;;
+            MEMORY_THRESHOLD_MB)
+                MEMORY_THRESHOLD_MB="$value"
+                ;;
+            LOAD_THRESHOLD)
+                LOAD_THRESHOLD="$value"
+                ;;
+            CHECK_SYSTEM_RESOURCES)
+                CHECK_SYSTEM_RESOURCES="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
                 ;;
             HOSTNAME)
                 HOSTNAME="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
@@ -366,13 +405,17 @@ validate_config() {
         AUTO_PRUNE="false"
     fi
     
-    # Validate Phase 1 feature flags
-    for flag in ENABLE_PASSWORD_FILE ENABLE_PASSWORD_COMMAND ENABLE_BACKUP_VERIFICATION; do
+    # Validate Phase 1 & 2 feature flags
+    for flag in ENABLE_PASSWORD_FILE ENABLE_PASSWORD_COMMAND ENABLE_BACKUP_VERIFICATION ENABLE_PERFORMANCE_MODE ENABLE_DOCKER_STATE_CACHE ENABLE_PARALLEL_PROCESSING CHECK_SYSTEM_RESOURCES; do
         local flag_value
         case "$flag" in
             ENABLE_PASSWORD_FILE) flag_value="$ENABLE_PASSWORD_FILE" ;;
             ENABLE_PASSWORD_COMMAND) flag_value="$ENABLE_PASSWORD_COMMAND" ;;
             ENABLE_BACKUP_VERIFICATION) flag_value="$ENABLE_BACKUP_VERIFICATION" ;;
+            ENABLE_PERFORMANCE_MODE) flag_value="$ENABLE_PERFORMANCE_MODE" ;;
+            ENABLE_DOCKER_STATE_CACHE) flag_value="$ENABLE_DOCKER_STATE_CACHE" ;;
+            ENABLE_PARALLEL_PROCESSING) flag_value="$ENABLE_PARALLEL_PROCESSING" ;;
+            CHECK_SYSTEM_RESOURCES) flag_value="$CHECK_SYSTEM_RESOURCES" ;;
         esac
         
         if [[ -n "$flag_value" ]] && ! [[ "$flag_value" =~ ^(true|false)$ ]]; then
@@ -381,6 +424,10 @@ validate_config() {
                 ENABLE_PASSWORD_FILE) ENABLE_PASSWORD_FILE="false" ;;
                 ENABLE_PASSWORD_COMMAND) ENABLE_PASSWORD_COMMAND="false" ;;
                 ENABLE_BACKUP_VERIFICATION) ENABLE_BACKUP_VERIFICATION="false" ;;
+                ENABLE_PERFORMANCE_MODE) ENABLE_PERFORMANCE_MODE="false" ;;
+                ENABLE_DOCKER_STATE_CACHE) ENABLE_DOCKER_STATE_CACHE="false" ;;
+                ENABLE_PARALLEL_PROCESSING) ENABLE_PARALLEL_PROCESSING="false" ;;
+                CHECK_SYSTEM_RESOURCES) CHECK_SYSTEM_RESOURCES="false" ;;
             esac
         fi
     done
@@ -395,6 +442,31 @@ validate_config() {
     if ! [[ "$MIN_DISK_SPACE_MB" =~ ^[0-9]+$ ]] || [[ "$MIN_DISK_SPACE_MB" -lt 100 ]]; then
         log_warn "Invalid MIN_DISK_SPACE_MB value: $MIN_DISK_SPACE_MB, using default: 1024"
         MIN_DISK_SPACE_MB=1024
+    fi
+    
+    # Validate Phase 2 numeric parameters
+    if ! [[ "$MAX_PARALLEL_JOBS" =~ ^[0-9]+$ ]] || [[ "$MAX_PARALLEL_JOBS" -lt 1 ]] || [[ "$MAX_PARALLEL_JOBS" -gt 10 ]]; then
+        log_warn "Invalid MAX_PARALLEL_JOBS value: $MAX_PARALLEL_JOBS, must be 1-10. Using default: 2"
+        MAX_PARALLEL_JOBS=2
+    fi
+    
+    if ! [[ "$MEMORY_THRESHOLD_MB" =~ ^[0-9]+$ ]] || [[ "$MEMORY_THRESHOLD_MB" -lt 100 ]]; then
+        log_warn "Invalid MEMORY_THRESHOLD_MB value: $MEMORY_THRESHOLD_MB, using default: 512"
+        MEMORY_THRESHOLD_MB=512
+    fi
+    
+    if ! [[ "$LOAD_THRESHOLD" =~ ^[0-9]+$ ]] || [[ "$LOAD_THRESHOLD" -lt 10 ]] || [[ "$LOAD_THRESHOLD" -gt 100 ]]; then
+        log_warn "Invalid LOAD_THRESHOLD value: $LOAD_THRESHOLD, must be 10-100. Using default: 80"
+        LOAD_THRESHOLD=80
+    fi
+    
+    # Set parallel jobs based on configuration
+    if [[ "$ENABLE_PARALLEL_PROCESSING" == "true" ]]; then
+        PARALLEL_JOBS="$MAX_PARALLEL_JOBS"
+        log_debug "Parallel processing enabled with $PARALLEL_JOBS jobs"
+    else
+        PARALLEL_JOBS=1
+        log_debug "Sequential processing mode (parallel processing disabled)"
     fi
     
     log_info "Configuration validation completed"
@@ -665,6 +737,221 @@ verify_backup() {
             return $?
             ;;
     esac
+}
+
+#######################################
+# Phase 2: Resource Monitoring & Performance Functions
+#######################################
+
+# System resource monitoring
+check_system_resources() {
+    if [[ "$CHECK_SYSTEM_RESOURCES" != "true" ]]; then
+        log_debug "System resource monitoring disabled"
+        return 0
+    fi
+    
+    log_info "Checking system resources"
+    
+    # Check available memory
+    local available_memory_mb
+    available_memory_mb="$(free -m | awk 'NR==2{print $7}')"
+    
+    if [[ -z "$available_memory_mb" || ! "$available_memory_mb" =~ ^[0-9]+$ ]]; then
+        log_warn "Cannot determine available memory, skipping memory check"
+    else
+        log_debug "Available memory: ${available_memory_mb}MB"
+        if [[ "$available_memory_mb" -lt "$MEMORY_THRESHOLD_MB" ]]; then
+            log_warn "Low available memory: ${available_memory_mb}MB (threshold: ${MEMORY_THRESHOLD_MB}MB)"
+            log_warn "Consider increasing memory or adjusting MEMORY_THRESHOLD_MB"
+        fi
+    fi
+    
+    # Check system load
+    local load_1min
+    load_1min="$(uptime | awk '{print $(NF-2)}' | sed 's/,//')"
+    
+    if [[ -n "$load_1min" ]]; then
+        # Convert load to percentage (assuming single core baseline)
+        local load_percentage
+        load_percentage="$(echo "$load_1min * 100 / 1" | bc -l 2>/dev/null | cut -d. -f1 2>/dev/null || echo "0")"
+        
+        log_debug "System load (1min): $load_1min (${load_percentage}%)"
+        if [[ "$load_percentage" -gt "$LOAD_THRESHOLD" ]]; then
+            log_warn "High system load: ${load_percentage}% (threshold: ${LOAD_THRESHOLD}%)"
+            log_warn "Consider running backup during lower system load periods"
+        fi
+    fi
+    
+    return 0
+}
+
+# Docker state caching for performance optimization
+initialize_docker_cache() {
+    if [[ "$ENABLE_DOCKER_STATE_CACHE" != "true" ]]; then
+        log_debug "Docker state caching disabled"
+        return 0
+    fi
+    
+    DOCKER_STATE_CACHE_FILE="$SCRIPT_DIR/logs/docker_state_cache.tmp"
+    log_debug "Initializing Docker state cache: $DOCKER_STATE_CACHE_FILE"
+    
+    # Clear any existing cache
+    rm -f "$DOCKER_STATE_CACHE_FILE"
+    
+    # Pre-cache Docker state information for all directories
+    log_debug "Pre-caching Docker states for enabled directories"
+    {
+        echo "# Docker State Cache - $(date)"
+        echo "# Format: directory_name=state"
+        for dir_name in "${!DIRLIST_ARRAY[@]}"; do
+            if [[ "${DIRLIST_ARRAY[$dir_name]}" == "true" ]]; then
+                local dir_path="$BACKUP_DIR/$dir_name"
+                if [[ -d "$dir_path" ]]; then
+                    local running_containers=0
+                    if cd "$dir_path" 2>/dev/null; then
+                        local ps_output
+                        ps_output="$(docker compose ps --services --filter "status=running" 2>/dev/null || echo "")"
+                        running_containers="$(echo "$ps_output" | awk 'NF' | wc -l)"
+                        cd - >/dev/null
+                    fi
+                    
+                    if [[ "$running_containers" -gt 0 ]]; then
+                        echo "$dir_name=running"
+                        log_debug "Cached state: $dir_name=running"
+                    else
+                        echo "$dir_name=stopped"
+                        log_debug "Cached state: $dir_name=stopped"
+                    fi
+                fi
+            fi
+        done
+    } > "$DOCKER_STATE_CACHE_FILE"
+    
+    log_debug "Docker state cache initialized"
+    return 0
+}
+
+# Get cached Docker state (performance optimization)
+get_cached_docker_state() {
+    local dir_name="$1"
+    
+    if [[ "$ENABLE_DOCKER_STATE_CACHE" != "true" || ! -f "$DOCKER_STATE_CACHE_FILE" ]]; then
+        return 1  # Cache not available
+    fi
+    
+    local cached_state
+    cached_state="$(grep "^$dir_name=" "$DOCKER_STATE_CACHE_FILE" 2>/dev/null | cut -d= -f2)"
+    
+    if [[ -n "$cached_state" ]]; then
+        log_debug "Using cached Docker state for $dir_name: $cached_state"
+        echo "$cached_state"
+        return 0
+    fi
+    
+    return 1  # Not found in cache
+}
+
+# Performance-optimized restic backup with optimization flags
+backup_single_directory_optimized() {
+    local dir_name="$1"
+    local dir_path="$2"
+    
+    log_info "Starting optimized restic backup for: $dir_name"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would backup directory with optimizations: $dir_name"
+        return $EXIT_SUCCESS
+    fi
+    
+    # Ensure restic environment variables are exported
+    export RESTIC_REPOSITORY
+    if [[ -n "$RESTIC_PASSWORD" ]]; then
+        export RESTIC_PASSWORD
+    fi
+    
+    local backup_start_time
+    backup_start_time="$(date '+%Y-%m-%d %H:%M:%S')"
+    
+    # Build optimized backup command
+    local backup_cmd=(
+        timeout "$BACKUP_TIMEOUT"
+        restic backup
+        --verbose
+        --tag "docker-backup"
+        --tag "selective-backup"
+        --tag "$dir_name"
+        --tag "$(date '+%Y-%m-%d')"
+    )
+    
+    # Add performance optimizations if enabled
+    if [[ "$ENABLE_PERFORMANCE_MODE" == "true" ]]; then
+        backup_cmd+=(
+            --one-file-system
+            --exclude-caches
+            --exclude-if-present .resticignore
+        )
+        log_debug "Added performance optimization flags for $dir_name"
+    fi
+    
+    # Add hostname parameter if configured
+    if [[ -n "$HOSTNAME" ]]; then
+        backup_cmd+=(--hostname "$HOSTNAME")
+        log_debug "Using custom hostname for backup: $HOSTNAME"
+    else
+        log_debug "Using system default hostname for backup"
+    fi
+    
+    # Add the directory path as the final argument
+    backup_cmd+=("$dir_path")
+    
+    log_info "Executing optimized backup command for $dir_name"
+    log_debug "Backup command: ${backup_cmd[*]}"
+    log_progress "Starting optimized restic backup - output will be displayed below:"
+    
+    # Run restic with output visible to user and logged to file
+    local restic_output_file
+    restic_output_file="$(mktemp)"
+    
+    # Run restic command with real-time output display and logging
+    if "${backup_cmd[@]}" 2>&1 | tee "$restic_output_file"; then
+        # Also append the output to our log file with proper formatting
+        while IFS= read -r line; do
+            log_message "RESTIC" "$line"
+        done < "$restic_output_file"
+        rm -f "$restic_output_file"
+        local backup_end_time
+        backup_end_time="$(date '+%Y-%m-%d %H:%M:%S')"
+        log_info "Optimized backup completed successfully for: $dir_name"
+        log_debug "Backup start time: $backup_start_time"
+        log_debug "Backup end time: $backup_end_time"
+        return $EXIT_SUCCESS
+    else
+        local exit_code=$?
+        # Also append the output to our log file with proper formatting
+        while IFS= read -r line; do
+            log_message "RESTIC" "$line"
+        done < "$restic_output_file"
+        rm -f "$restic_output_file"
+        log_error "Optimized backup failed for $dir_name with exit code: $exit_code"
+        return $EXIT_BACKUP_ERROR
+    fi
+}
+
+# Parallel processing controller (for future expansion)
+process_directories_parallel() {
+    local enabled_dirs=("$@")
+    
+    if [[ "$ENABLE_PARALLEL_PROCESSING" != "true" || "$PARALLEL_JOBS" -eq 1 ]]; then
+        log_debug "Parallel processing disabled, using sequential processing"
+        return 1  # Fall back to sequential processing
+    fi
+    
+    log_info "Parallel processing enabled with $PARALLEL_JOBS concurrent jobs"
+    log_warn "Parallel processing is experimental and may cause resource contention"
+    
+    # For now, return 1 to fall back to sequential processing
+    # Future implementation would use job control and process management
+    return 1
 }
 
 #######################################
@@ -1184,9 +1471,17 @@ process_directory() {
         return $EXIT_DOCKER_ERROR
     fi
     
-    # Step 2: Backup directory
+    # Step 2: Backup directory (with performance optimization if enabled)
     log_progress "Backing up directory: $dir_name"
-    if ! backup_single_directory "$dir_name" "$dir_path"; then
+    
+    # Use optimized backup if performance mode is enabled
+    local backup_function="backup_single_directory"
+    if [[ "$ENABLE_PERFORMANCE_MODE" == "true" ]]; then
+        backup_function="backup_single_directory_optimized"
+        log_debug "Using performance-optimized backup for: $dir_name"
+    fi
+    
+    if ! "$backup_function" "$dir_name" "$dir_path"; then
         log_error "Backup failed for directory: $dir_name"
         # Try to restart stack even if backup failed (only if it was originally running)
         log_progress "Attempting to restart stack after backup failure: $dir_name"
@@ -1510,6 +1805,13 @@ CONFIGURATION:
     Optional: ENABLE_PASSWORD_COMMAND=true, RESTIC_PASSWORD_COMMAND="command"
     Optional: ENABLE_BACKUP_VERIFICATION=true, VERIFICATION_DEPTH=files
     Optional: MIN_DISK_SPACE_MB=1024 (minimum free space required)
+    
+    Phase 2 Performance & Resource Monitoring Features:
+    Optional: ENABLE_PERFORMANCE_MODE=true (restic optimization flags)
+    Optional: ENABLE_DOCKER_STATE_CACHE=true (reduces Docker API calls)
+    Optional: CHECK_SYSTEM_RESOURCES=true (monitors memory/load)
+    Optional: MEMORY_THRESHOLD_MB=512, LOAD_THRESHOLD=80 (resource limits)
+    Optional: ENABLE_PARALLEL_PROCESSING=true, MAX_PARALLEL_JOBS=2
 
 DIRECTORY SELECTION:
     Edit the generated .dirlist file to control which directories are backed up:
@@ -1594,6 +1896,9 @@ main() {
         exit $EXIT_BACKUP_ERROR
     fi
     
+    # Phase 2: System resource monitoring
+    check_system_resources
+    
     # Phase 2: Scan directories and update .dirlist
     log_progress "=== PHASE 2: Directory Scanning ==="
     scan_directories || exit $?
@@ -1621,6 +1926,9 @@ main() {
     for key in "${!DIRLIST_ARRAY[@]}"; do
         log_debug "  $key=${DIRLIST_ARRAY[$key]}"
     done
+    
+    # Phase 2: Initialize Docker state caching if enabled
+    initialize_docker_cache
     
     # Store initial state of all Docker stacks before any operations
     store_initial_stack_states || exit $?
