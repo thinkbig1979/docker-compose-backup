@@ -1,0 +1,32 @@
+# Test configuration for backup script testing
+# This configuration is used by the test suite
+
+# Test backup directory
+BACKUP_DIR=/test-fixtures/docker-stacks
+
+# Timeouts for testing (shorter than production)
+BACKUP_TIMEOUT=300
+DOCKER_TIMEOUT=10
+
+# Test restic repository
+RESTIC_REPOSITORY=http://restic-server:8000/test-repo
+RESTIC_PASSWORD=test-password
+
+# Enable features for comprehensive testing
+ENABLE_PASSWORD_FILE=false
+ENABLE_BACKUP_VERIFICATION=true
+VERIFICATION_DEPTH=files
+MIN_DISK_SPACE_MB=50
+
+# Performance settings for test environment
+ENABLE_PERFORMANCE_MODE=false
+MAX_PARALLEL_JOBS=1
+MEMORY_THRESHOLD_MB=64
+LOAD_THRESHOLD=90
+CHECK_SYSTEM_RESOURCES=true
+
+# Enhanced monitoring for test validation
+ENABLE_JSON_LOGGING=true
+ENABLE_PROGRESS_BARS=false
+ENABLE_METRICS_COLLECTION=true
+JSON_LOG_FILE=/test-results/backup-metrics.json

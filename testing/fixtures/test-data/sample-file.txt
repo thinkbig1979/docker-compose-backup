@@ -1,0 +1,8 @@
+This is a sample file for backup testing.
+It contains multiple lines to verify backup integrity.
+
+Line 1: Basic text content
+Line 2: Special characters: !@#$%^&*()
+Line 3: Unicode: 🔥 💾 🚀
+Line 4: Numbers and dates: 2024-01-01 123456
+Line 5: End of test data

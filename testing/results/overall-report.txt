@@ -1,0 +1,12 @@
+Overall Test Report
+Generated: vr  5 sep 2025 19:37:36 CEST
+===============================================
+
+Unit Tests: 1/34 passed
+  33 FAILED
+Integration Tests: 8/18 passed
+  10 FAILED
+E2e Tests: 3/7 passed
+  4 FAILED
+
+Test artifacts available in: /home/edwin/development/backup script/testing/scripts/../results

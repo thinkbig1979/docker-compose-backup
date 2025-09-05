@@ -1,0 +1,144 @@
+1..18
+ok 1 Integration: Full backup workflow with Docker stack # skip Docker not available
+ok 2 Integration: Backup with dirlist filtering # skip Docker not available
+ok 3 Integration: Backup verification works correctly # skip Docker not available
+not ok 4 Integration: Error handling for missing Docker stack
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_backup_workflow.bats, line 143)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 127
+# output : /usr/local/lib/bats-core/test_functions.bash: line 158: /workspace/docker-backup.sh: No such file or directory
+# --
+#
+ok 5 Integration: Handles Docker service start failure gracefully # skip Docker not available
+not ok 6 Integration: Resource monitoring integration
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_backup_workflow.bats, line 173)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 127
+# output : /usr/local/lib/bats-core/test_functions.bash: line 158: /workspace/docker-backup.sh: No such file or directory
+# --
+#
+not ok 7 Integration: JSON logging integration
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_backup_workflow.bats, line 186)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 127
+# output : /usr/local/lib/bats-core/test_functions.bash: line 158: /workspace/docker-backup.sh: No such file or directory
+# --
+#
+not ok 8 rclone_backup.sh exists and is executable
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 41)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 1
+# output :
+# --
+#
+not ok 9 rclone_restore.sh exists and is executable
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 46)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 1
+# output :
+# --
+#
+not ok 10 Integration: rclone backup with local storage
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 54)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 127
+# output : /usr/local/lib/bats-core/test_functions.bash: line 158: /workspace/rclone_backup.sh: No such file or directory
+# --
+#
+not ok 11 Integration: rclone restore functionality
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 71)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 127
+# output : /usr/local/lib/bats-core/test_functions.bash: line 158: /workspace/rclone_backup.sh: No such file or directory
+# --
+#
+not ok 12 Integration: rclone handles file conflicts during backup
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 96)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 127
+# output : /usr/local/lib/bats-core/test_functions.bash: line 158: /workspace/rclone_backup.sh: No such file or directory
+# --
+#
+ok 13 Integration: rclone dry-run mode works correctly # skip Dry-run mode not implemented
+not ok 14 Integration: rclone handles large directory structures
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 140)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 127
+# output : timeout: failed to run command ‘/workspace/rclone_backup.sh’: No such file or directory
+# --
+#
+ok 15 Integration: rclone error handling for invalid destinations
+ok 16 Integration: rclone handles empty source directories
+ok 17 Integration: rclone configuration validation
+not ok 18 Integration: rclone progress reporting
+# (from function `assert_success' in file /opt/bats-helpers/bats-assert/src/assert_success.bash, line 45,
+#  in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 186)
+#   `assert_success' failed
+#
+# -- command failed --
+# status : 127
+# output : timeout: failed to run command ‘/workspace/rclone_backup.sh’: No such file or directory
+# --
+#
+
+The following warnings were encountered during tests:
+BW01: `run`'s command `/workspace/docker-backup.sh --dry-run` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_backup_workflow.bats, line 142)
+BW01: `run`'s command `/workspace/docker-backup.sh --dry-run` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_backup_workflow.bats, line 172)
+BW01: `run`'s command `/workspace/docker-backup.sh --dry-run` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_backup_workflow.bats, line 185)
+BW01: `run`'s command `/workspace/rclone_backup.sh /tmp/tmp.qdHiPGMyAZ/source test-dest:/tmp/tmp.qdHiPGMyAZ/destination/backup` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 53)
+BW01: `run`'s command `/workspace/rclone_backup.sh /tmp/tmp.rGBPb2EW4V/source test-dest:/tmp/tmp.rGBPb2EW4V/destination/backup` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 70)
+BW01: `run`'s command `/workspace/rclone_backup.sh /tmp/tmp.R46lV9NBh0/source test-dest:/tmp/tmp.R46lV9NBh0/destination/backup` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 95)
+BW01: `run`'s command `timeout 30s /workspace/rclone_backup.sh /tmp/tmp.jShhTQrLlG/source test-dest:/tmp/tmp.jShhTQrLlG/destination/backup` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 139)
+BW01: `run`'s command `/workspace/rclone_backup.sh /tmp/tmp.40jusfAXmc/source invalid-remote:/path` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 152)
+BW01: `run`'s command `/workspace/rclone_backup.sh /tmp/tmp.AKKaDHHnyF/empty test-dest:/tmp/tmp.AKKaDHHnyF/destination/empty-backup` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 162)
+BW01: `run`'s command `/workspace/rclone_backup.sh /tmp/tmp.n44JMVVDkS/source test-dest:/tmp/tmp.n44JMVVDkS/destination/backup` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 173)
+BW01: `run`'s command `timeout 30s /workspace/rclone_backup.sh /tmp/tmp.CFhXXHLWzb/source test-dest:/tmp/tmp.CFhXXHLWzb/destination/backup` exited with code 127, indicating 'Command not found'. Use run's return code checks, e.g. `run -127`, to fix this message.
+      (from function `run' in file /usr/local/lib/bats-core/test_functions.bash, line 420,
+       in test file /home/edwin/development/backup script/testing/integration/test_rclone_integration.bats, line 185)

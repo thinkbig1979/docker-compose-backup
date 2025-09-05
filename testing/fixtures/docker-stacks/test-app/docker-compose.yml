@@ -1,0 +1,43 @@
+# Test Docker Compose Stack for Backup Testing
+version: '3.8'
+
+services:
+  web:
+    image: nginx:alpine
+    container_name: test-web
+    ports:
+      - "8080:80"
+    volumes:
+      - web-data:/usr/share/nginx/html
+      - ./config:/etc/nginx/conf.d:ro
+    environment:
+      - ENV=test
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    container_name: test-db
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=testdb
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: test-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+volumes:
+  web-data:
+  db-data:
+  redis-data:

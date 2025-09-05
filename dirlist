@@ -1,0 +1,4 @@
+# Auto-generated directory list for selective backup
+# Edit this file to enable/disable backup for each directory
+# true = backup enabled, false = skip backup
+test-stack=false

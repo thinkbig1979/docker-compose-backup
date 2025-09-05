@@ -1,0 +1,22 @@
+Test Report: integration
+Generated: vr  5 sep 2025 19:37:15 CEST
+Results File: /home/edwin/development/backup script/testing/scripts/../results/integration-results.tap
+===============================================
+
+FAILED TESTS:
+not ok 4 Integration: Error handling for missing Docker stack
+not ok 6 Integration: Resource monitoring integration
+not ok 7 Integration: JSON logging integration
+not ok 8 rclone_backup.sh exists and is executable
+not ok 9 rclone_restore.sh exists and is executable
+not ok 10 Integration: rclone backup with local storage
+not ok 11 Integration: rclone restore functionality
+not ok 12 Integration: rclone handles file conflicts during backup
+not ok 14 Integration: rclone handles large directory structures
+not ok 18 Integration: rclone progress reporting
+
+SUMMARY:
+  Total Tests: 18
+  Passed: 8
+  Failed: 10
+  Status: SOME TESTS FAILED
