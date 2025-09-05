@@ -1,5 +1,24 @@
 # Directory List Management TUI Script
 
+## ⚠️ INTEGRATION STATUS
+
+**As of 2025-01-15**: This standalone script functionality has been **fully integrated** into the main backup TUI (`backup-tui.sh`). 
+
+**Recommended Usage**: Use the integrated **Directory List Management** menu in the main TUI for the best user experience with enhanced features including bulk operations, directory statistics, and comprehensive troubleshooting.
+
+**Legacy Support**: This standalone script remains available for backward compatibility and command-line automation.
+
+### 🚀 Enhanced Features in Integrated TUI
+
+The integrated version includes all standalone features plus:
+- **Bulk Operations**: Pattern-based enable/disable with templates (Production, Development, Testing)
+- **Directory Statistics**: Size analysis and backup optimization insights
+- **Import/Export**: Portable directory configuration management
+- **Advanced Troubleshooting**: Comprehensive diagnostics and problem resolution
+- **Real-time Status**: Backup history integration and last backup dates
+- **Performance Optimization**: Handles large directory counts efficiently
+- **Atomic Operations**: Safe file operations with automatic rollback
+
 ## Overview
 
 The `manage-dirlist.sh` script provides an interactive Text User Interface (TUI) for managing the `.dirlist` file used by the Docker backup script. It allows users to easily enable or disable directories for backup without manually editing the configuration file.

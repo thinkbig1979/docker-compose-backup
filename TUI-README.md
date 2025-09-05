@@ -37,7 +37,7 @@ cd /path/to/backup/script
 - **Stage 2: Cloud Sync (Upload)** - Cloud synchronization  
 - **Stage 3: Cloud Restore (Download)** - Disaster recovery
 - **Configuration Management** - Unified configuration interface
-- **Directory List Management** - Enable/disable backup directories
+- **Directory List Management** - Comprehensive directory backup control
 - **Monitoring & Status** - System health and status reports
 - **System Health Check** - Comprehensive system validation
 - **View Logs** - Log analysis and troubleshooting
@@ -74,6 +74,16 @@ cd /path/to/backup/script
 - **Troubleshooting** - Recovery diagnostics
 - **Disaster Recovery** - Step-by-step recovery wizard
 
+### 📁 Directory List Management
+- **View Directory Status** - Comprehensive status reports with backup history
+- **Enable/Disable Directories** - Interactive selection with size analysis
+- **Bulk Operations** - Pattern-based enable/disable with templates
+- **Scan for New Directories** - Automatic discovery and synchronization
+- **Directory Statistics** - Backup size analysis and optimization insights
+- **Synchronize Directory List** - Auto-detect and handle directory changes
+- **Import/Export Settings** - Portable directory configuration management
+- **Troubleshoot Directory Issues** - Diagnostics and problem resolution
+
 ### 🔧 Configuration Management
 - **Generate Templates** - Create configuration from scratch
 - **Edit Configuration** - Modify backup settings
@@ -100,6 +110,7 @@ Main Menu
 │   ├── Quick/Custom/Dry Run Backup
 │   ├── List/Verify Backups
 │   ├── Status & Monitoring
+│   ├── Manage Directory Selection
 │   └── Configuration & Troubleshooting
 ├── Stage 2: Cloud Sync
 │   ├── Quick/Custom/Dry Run Sync
@@ -109,10 +120,22 @@ Main Menu
 │   ├── Quick/Custom Restore
 │   ├── Preview & Testing
 │   └── Disaster Recovery
-└── Configuration Management
-    ├── Generate/Edit/Validate Config
-    ├── Rclone Management
-    └── Backup/Restore Settings
+├── Configuration Management
+│   ├── Generate/Edit/Validate Config
+│   ├── Rclone Management
+│   └── Backup/Restore Settings
+├── Directory List Management
+│   ├── View Directory Status
+│   ├── Enable/Disable Directories
+│   ├── Bulk Operations
+│   ├── Scan & Synchronize
+│   ├── Statistics & Analysis
+│   ├── Import/Export Settings
+│   └── Troubleshooting
+└── System Monitoring & Health
+    ├── Status Reports
+    ├── Log Analysis
+    └── Diagnostics
 ```
 
 ## Typical Workflows
@@ -127,7 +150,16 @@ Main Menu
    - Set `RESTIC_PASSWORD` for repository encryption
 5. Select **Configure Rclone Remotes**
    - Set up your cloud storage (Google Drive, S3, etc.)
-6. Return to main menu and run **System Health Check**
+6. Go to **Directory List Management** → **Scan for New Directories** to discover Docker stacks
+7. Use **Enable/Disable Directories** to select which stacks to backup
+8. Return to main menu and run **System Health Check**
+
+### Directory Management Workflow
+1. **Initial Discovery**: **Directory List Management** → **Scan for New Directories**
+2. **Select Directories**: Use **Enable/Disable Directories** with interactive checkboxes
+3. **Optimize Selection**: Use **Directory Statistics** to analyze backup size impact
+4. **Bulk Operations**: Use templates (Production/Development) for quick configuration
+5. **Ongoing Management**: **Synchronize Directory List** to handle new/removed stacks
 
 ### Daily Backup Routine
 1. **Stage 1**: Run **Quick Backup** or **Custom Backup**
@@ -216,14 +248,26 @@ Managed through TUI: **Configuration Management** → **Configure Rclone Remotes
 
 ## Architecture
 
-The TUI acts as a unified frontend to three separate backup system components:
+The TUI acts as a unified frontend to the complete 3-stage backup ecosystem:
 
+### Core Components
 1. **docker-backup.sh** - Enhanced restic-based Docker backup script
 2. **rclone_backup.sh** - Cloud upload synchronization
 3. **rclone_restore.sh** - Cloud download and recovery
 
-Each component can also be used independently via command line, but the TUI provides integrated management and user-friendly operation.
+### Native TUI Features
+4. **Directory Management** - Native dirlist management (no external scripts)
+5. **Configuration Management** - Unified backup.conf handling
+6. **System Monitoring** - Integrated health checks and status reporting
+
+### Integration Architecture
+- **Native Implementation**: Directory management fully integrated into TUI (4,181 lines)
+- **Backward Compatibility**: Legacy `manage-dirlist.sh` functionality preserved
+- **Atomic Operations**: Safe dirlist file operations with automatic rollback
+- **Performance Optimized**: Handles large directory counts efficiently
+
+Each component can also be used independently via command line, but the TUI provides comprehensive integrated management with enterprise-grade directory control.
 
 ---
 
-**Total Implementation**: 2000+ lines of comprehensive TUI functionality providing enterprise-grade backup management in an intuitive interface.
+**Total Implementation**: 4,181 lines of comprehensive TUI functionality providing enterprise-grade backup management with integrated directory control in an intuitive interface.

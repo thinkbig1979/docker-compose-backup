@@ -21,6 +21,16 @@ This backup system implements a sophisticated 3-stage approach for optimal perfo
 - Enables recovery of the backup system itself
 - Foundation for data restoration workflows
 
+## 🖥️ Text User Interface (TUI)
+
+For enhanced user experience, use the comprehensive **backup-tui.sh** which provides:
+- **Unified Management**: Single interface for all 3 stages
+- **Directory Management**: Interactive directory selection with bulk operations
+- **System Monitoring**: Health checks and status reporting
+- **Configuration Management**: Guided setup and validation
+
+See **[TUI-README.md](TUI-README.md)** for complete TUI documentation and usage guide.
+
 **Self-Contained Design**: This system is designed to be completely portable and self-contained within a single directory, with all configuration files located alongside the scripts.
 
 ## Features
@@ -276,7 +286,9 @@ cd ~/docker-backup
 
 ### Directory Selection
 
-After the first run, edit the `.dirlist` file to control which directories are backed up:
+**Recommended**: Use the **backup-tui.sh** TUI for interactive directory management with bulk operations and statistics.
+
+**Alternative**: After the first run, manually edit the `.dirlist` file to control which directories are backed up:
 
 ```bash
 # Edit the directory list
