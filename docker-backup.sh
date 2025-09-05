@@ -36,6 +36,12 @@ MEMORY_THRESHOLD_MB=512
 LOAD_THRESHOLD=80
 CHECK_SYSTEM_RESOURCES=false
 
+# Phase 3 Feature Flags - Enhanced Monitoring & UX
+ENABLE_JSON_LOGGING=false
+ENABLE_PROGRESS_BARS=false
+ENABLE_METRICS_COLLECTION=false
+JSON_LOG_FILE=""
+
 # Global variables
 BACKUP_DIR=""
 BACKUP_TIMEOUT="${DEFAULT_BACKUP_TIMEOUT}"
@@ -56,6 +62,9 @@ PASSWORD_COMMAND=""
 # Phase 2 variables
 DOCKER_STATE_CACHE_FILE=""
 PARALLEL_JOBS=1
+# Phase 3 variables
+METRICS_FILE=""
+BACKUP_START_TIMESTAMP=""
 VERBOSE=false
 DRY_RUN=false
 
@@ -297,6 +306,18 @@ load_config() {
             CHECK_SYSTEM_RESOURCES)
                 CHECK_SYSTEM_RESOURCES="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
                 ;;
+            ENABLE_JSON_LOGGING)
+                ENABLE_JSON_LOGGING="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            ENABLE_PROGRESS_BARS)
+                ENABLE_PROGRESS_BARS="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            ENABLE_METRICS_COLLECTION)
+                ENABLE_METRICS_COLLECTION="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
+            JSON_LOG_FILE)
+                JSON_LOG_FILE="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
+                ;;
             HOSTNAME)
                 HOSTNAME="$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')"
                 ;;
@@ -405,8 +426,8 @@ validate_config() {
         AUTO_PRUNE="false"
     fi
     
-    # Validate Phase 1 & 2 feature flags
-    for flag in ENABLE_PASSWORD_FILE ENABLE_PASSWORD_COMMAND ENABLE_BACKUP_VERIFICATION ENABLE_PERFORMANCE_MODE ENABLE_DOCKER_STATE_CACHE ENABLE_PARALLEL_PROCESSING CHECK_SYSTEM_RESOURCES; do
+    # Validate Phase 1, 2 & 3 feature flags
+    for flag in ENABLE_PASSWORD_FILE ENABLE_PASSWORD_COMMAND ENABLE_BACKUP_VERIFICATION ENABLE_PERFORMANCE_MODE ENABLE_DOCKER_STATE_CACHE ENABLE_PARALLEL_PROCESSING CHECK_SYSTEM_RESOURCES ENABLE_JSON_LOGGING ENABLE_PROGRESS_BARS ENABLE_METRICS_COLLECTION; do
         local flag_value
         case "$flag" in
             ENABLE_PASSWORD_FILE) flag_value="$ENABLE_PASSWORD_FILE" ;;
@@ -416,6 +437,9 @@ validate_config() {
             ENABLE_DOCKER_STATE_CACHE) flag_value="$ENABLE_DOCKER_STATE_CACHE" ;;
             ENABLE_PARALLEL_PROCESSING) flag_value="$ENABLE_PARALLEL_PROCESSING" ;;
             CHECK_SYSTEM_RESOURCES) flag_value="$CHECK_SYSTEM_RESOURCES" ;;
+            ENABLE_JSON_LOGGING) flag_value="$ENABLE_JSON_LOGGING" ;;
+            ENABLE_PROGRESS_BARS) flag_value="$ENABLE_PROGRESS_BARS" ;;
+            ENABLE_METRICS_COLLECTION) flag_value="$ENABLE_METRICS_COLLECTION" ;;
         esac
         
         if [[ -n "$flag_value" ]] && ! [[ "$flag_value" =~ ^(true|false)$ ]]; then
@@ -428,6 +452,9 @@ validate_config() {
                 ENABLE_DOCKER_STATE_CACHE) ENABLE_DOCKER_STATE_CACHE="false" ;;
                 ENABLE_PARALLEL_PROCESSING) ENABLE_PARALLEL_PROCESSING="false" ;;
                 CHECK_SYSTEM_RESOURCES) CHECK_SYSTEM_RESOURCES="false" ;;
+                ENABLE_JSON_LOGGING) ENABLE_JSON_LOGGING="false" ;;
+                ENABLE_PROGRESS_BARS) ENABLE_PROGRESS_BARS="false" ;;
+                ENABLE_METRICS_COLLECTION) ENABLE_METRICS_COLLECTION="false" ;;
             esac
         fi
     done
@@ -467,6 +494,30 @@ validate_config() {
     else
         PARALLEL_JOBS=1
         log_debug "Sequential processing mode (parallel processing disabled)"
+    fi
+    
+    # Setup JSON logging if enabled
+    if [[ "$ENABLE_JSON_LOGGING" == "true" ]]; then
+        if [[ -z "$JSON_LOG_FILE" ]]; then
+            JSON_LOG_FILE="$SCRIPT_DIR/logs/docker_backup.json"
+            log_debug "Using default JSON log file: $JSON_LOG_FILE"
+        fi
+        
+        # Ensure JSON log directory exists
+        local json_log_dir
+        json_log_dir="$(dirname "$JSON_LOG_FILE")"
+        if [[ ! -d "$json_log_dir" ]]; then
+            mkdir -p "$json_log_dir" || {
+                log_warn "Cannot create JSON log directory: $json_log_dir, disabling JSON logging"
+                ENABLE_JSON_LOGGING="false"
+            }
+        fi
+    fi
+    
+    # Setup metrics collection if enabled
+    if [[ "$ENABLE_METRICS_COLLECTION" == "true" ]]; then
+        METRICS_FILE="$SCRIPT_DIR/logs/backup_metrics.json"
+        log_debug "Metrics collection enabled: $METRICS_FILE"
     fi
     
     log_info "Configuration validation completed"
@@ -952,6 +1003,291 @@ process_directories_parallel() {
     # For now, return 1 to fall back to sequential processing
     # Future implementation would use job control and process management
     return 1
+}
+
+#######################################
+# Phase 3: Enhanced Monitoring & User Experience Functions
+#######################################
+
+# JSON logging function
+log_json() {
+    local event_type="$1"
+    local directory="${2:-}"
+    local status="${3:-}"
+    local details="${4:-}"
+    
+    if [[ "$ENABLE_JSON_LOGGING" != "true" || -z "$JSON_LOG_FILE" ]]; then
+        return 0
+    fi
+    
+    local timestamp
+    timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    
+    local json_entry
+    json_entry=$(cat <<EOF
+{
+  "timestamp": "$timestamp",
+  "event_type": "$event_type",
+  "directory": "$directory",
+  "status": "$status",
+  "details": "$details",
+  "script_pid": $$
+}
+EOF
+    )
+    
+    echo "$json_entry" >> "$JSON_LOG_FILE" 2>/dev/null || {
+        log_debug "Failed to write to JSON log file: $JSON_LOG_FILE"
+    }
+}
+
+# Progress bar functionality
+show_progress() {
+    local current="$1"
+    local total="$2"
+    local description="${3:-Processing}"
+    
+    if [[ "$ENABLE_PROGRESS_BARS" != "true" ]]; then
+        return 0
+    fi
+    
+    local percentage=0
+    if [[ $total -gt 0 ]]; then
+        percentage=$((current * 100 / total))
+    fi
+    
+    local bar_length=50
+    local filled_length=$((percentage * bar_length / 100))
+    local empty_length=$((bar_length - filled_length))
+    
+    local bar=""
+    for ((i=0; i<filled_length; i++)); do
+        bar+="█"
+    done
+    for ((i=0; i<empty_length; i++)); do
+        bar+="░"
+    done
+    
+    printf "\r${CYAN}%s: [%s] %d%% (%d/%d)${NC}" "$description" "$bar" "$percentage" "$current" "$total"
+    
+    if [[ $current -eq $total ]]; then
+        printf "\n"
+    fi
+}
+
+# Metrics collection
+collect_metric() {
+    local metric_type="$1"
+    local value="$2"
+    local directory="${3:-}"
+    
+    if [[ "$ENABLE_METRICS_COLLECTION" != "true" || -z "$METRICS_FILE" ]]; then
+        return 0
+    fi
+    
+    local timestamp
+    timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    
+    local metric_entry
+    metric_entry=$(cat <<EOF
+{
+  "timestamp": "$timestamp",
+  "metric_type": "$metric_type",
+  "value": "$value",
+  "directory": "$directory",
+  "script_pid": $$
+}
+EOF
+    )
+    
+    echo "$metric_entry" >> "$METRICS_FILE" 2>/dev/null || {
+        log_debug "Failed to write to metrics file: $METRICS_FILE"
+    }
+}
+
+# Initialize metrics collection
+initialize_metrics() {
+    if [[ "$ENABLE_METRICS_COLLECTION" != "true" || -z "$METRICS_FILE" ]]; then
+        return 0
+    fi
+    
+    log_debug "Initializing metrics collection: $METRICS_FILE"
+    
+    # Create metrics file header
+    {
+        echo "{"
+        echo "  \"backup_session\": {"
+        echo "    \"start_time\": \"$(date -u '+%Y-%m-%dT%H:%M:%SZ')\","
+        echo "    \"script_version\": \"2.0\","
+        echo "    \"pid\": $$"
+        echo "  },"
+        echo "  \"metrics\": ["
+    } > "$METRICS_FILE" 2>/dev/null || {
+        log_warn "Cannot initialize metrics file: $METRICS_FILE, disabling metrics collection"
+        ENABLE_METRICS_COLLECTION="false"
+        return 1
+    }
+    
+    collect_metric "session_start" "$(date +%s)"
+    return 0
+}
+
+# Finalize metrics collection
+finalize_metrics() {
+    if [[ "$ENABLE_METRICS_COLLECTION" != "true" || -z "$METRICS_FILE" ]]; then
+        return 0
+    fi
+    
+    collect_metric "session_end" "$(date +%s)"
+    
+    # Close metrics file
+    {
+        echo "  ]"
+        echo "}"
+    } >> "$METRICS_FILE" 2>/dev/null || {
+        log_debug "Failed to finalize metrics file: $METRICS_FILE"
+    }
+    
+    log_debug "Metrics collection finalized"
+}
+
+# Enhanced logging with JSON support
+log_message_enhanced() {
+    local level="$1"
+    shift
+    local message="$*"
+    
+    # Call original log_message function
+    log_message "$level" "$message"
+    
+    # Also log to JSON if enabled
+    case "$level" in
+        ERROR|WARN)
+            log_json "log_entry" "" "$level" "$message"
+            ;;
+        PROGRESS)
+            log_json "progress" "" "info" "$message"
+            ;;
+    esac
+}
+
+# Status reporting for monitoring integration
+generate_status_report() {
+    local status="$1"
+    local details="${2:-}"
+    
+    local report_file="$SCRIPT_DIR/logs/backup_status.json"
+    local timestamp
+    timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    
+    cat > "$report_file" <<EOF
+{
+  "timestamp": "$timestamp",
+  "status": "$status",
+  "details": "$details",
+  "script_pid": $$,
+  "config_file": "$CONFIG_FILE",
+  "backup_dir": "$BACKUP_DIR"
+}
+EOF
+    
+    log_debug "Generated status report: $report_file"
+}
+
+# List recent backup snapshots
+list_backups() {
+    log_info "Listing recent backup snapshots"
+    
+    # Ensure restic is configured
+    if ! check_restic; then
+        log_error "Cannot access restic repository"
+        return $EXIT_BACKUP_ERROR
+    fi
+    
+    echo
+    echo -e "${GREEN}Recent Backup Snapshots:${NC}"
+    echo "=========================="
+    
+    # List snapshots grouped by directory tag
+    local snapshots_output
+    snapshots_output="$(restic snapshots --json 2>/dev/null)"
+    
+    if [[ -z "$snapshots_output" || "$snapshots_output" == "null" ]]; then
+        echo "No snapshots found in repository"
+        return 0
+    fi
+    
+    # Process snapshots using basic text processing (avoiding jq dependency)
+    echo "$snapshots_output" | grep -E '"tags"|"time"|"short_id"' | \
+    while IFS= read -r line; do
+        if [[ "$line" =~ \"tags\" ]]; then
+            # Extract directory name from tags
+            local dir_tag
+            dir_tag="$(echo "$line" | sed -n 's/.*"tags":\[.*"\([^"]*\)".*\].*/\1/p' | head -1)"
+            if [[ -n "$dir_tag" && "$dir_tag" != "docker-backup" && "$dir_tag" != "selective-backup" ]]; then
+                echo -n -e "${CYAN}Directory: $dir_tag${NC} - "
+            fi
+        elif [[ "$line" =~ \"short_id\" ]]; then
+            local snapshot_id
+            snapshot_id="$(echo "$line" | sed 's/.*"short_id": *"\([^"]*\)".*/\1/')"
+            echo -n "ID: $snapshot_id - "
+        elif [[ "$line" =~ \"time\" ]]; then
+            local timestamp
+            timestamp="$(echo "$line" | sed 's/.*"time": *"\([^"]*\)".*/\1/' | cut -dT -f1,2 | tr T ' ')"
+            echo "Time: $timestamp"
+        fi
+    done
+    
+    echo
+    return 0
+}
+
+# Preview restore for a directory
+restore_preview() {
+    local dir_name="$1"
+    
+    if [[ -z "$dir_name" ]]; then
+        log_error "Directory name required for restore preview"
+        echo "Usage: $SCRIPT_NAME --restore-preview DIRECTORY_NAME"
+        return $EXIT_CONFIG_ERROR
+    fi
+    
+    log_info "Generating restore preview for directory: $dir_name"
+    
+    # Ensure restic is configured
+    if ! check_restic; then
+        log_error "Cannot access restic repository"
+        return $EXIT_BACKUP_ERROR
+    fi
+    
+    # Find the latest snapshot for this directory
+    local latest_snapshot
+    latest_snapshot="$(restic snapshots --tag "$dir_name" --latest 1 --json 2>/dev/null | grep -o '"short_id":"[^"]*"' | head -1 | cut -d'"' -f4)"
+    
+    if [[ -z "$latest_snapshot" ]]; then
+        log_error "No snapshots found for directory: $dir_name"
+        return $EXIT_BACKUP_ERROR
+    fi
+    
+    echo
+    echo -e "${GREEN}Restore Preview for Directory: $dir_name${NC}"
+    echo "==============================================="
+    echo "Latest snapshot ID: $latest_snapshot"
+    echo
+    echo -e "${YELLOW}Files that would be restored:${NC}"
+    
+    # List files in the snapshot
+    if restic ls "$latest_snapshot" 2>/dev/null; then
+        echo
+        echo -e "${GREEN}Restore preview completed successfully${NC}"
+        echo "To perform actual restore:"
+        echo "  restic restore $latest_snapshot --target /path/to/restore/location"
+    else
+        log_error "Failed to list files in snapshot: $latest_snapshot"
+        return $EXIT_BACKUP_ERROR
+    fi
+    
+    return 0
 }
 
 #######################################
@@ -1786,9 +2122,11 @@ This script implements a two-phase selective backup approach:
 2. Sequential Backup Phase: Processes only enabled directories one at a time
 
 OPTIONS:
-    -v, --verbose       Enable verbose output
-    -n, --dry-run      Perform a dry run without making changes
-    -h, --help         Display this help message
+    -v, --verbose          Enable verbose output
+    -n, --dry-run         Perform a dry run without making changes
+    -h, --help            Display this help message
+    --list-backups        List recent backup snapshots
+    --restore-preview DIR Preview restore for directory
 
 CONFIGURATION:
     Configuration is read from: $CONFIG_FILE (in script directory)
@@ -1850,6 +2188,24 @@ parse_arguments() {
                 usage
                 exit $EXIT_SUCCESS
                 ;;
+            --list-backups)
+                # Initialize logging and load config for this command
+                init_logging
+                load_config || exit $?
+                list_backups
+                exit $?
+                ;;
+            --restore-preview)
+                if [[ -z "$2" ]]; then
+                    log_error "--restore-preview requires a directory name"
+                    exit $EXIT_CONFIG_ERROR
+                fi
+                # Initialize logging and load config for this command
+                init_logging
+                load_config || exit $?
+                restore_preview "$2"
+                exit $?
+                ;;
             *)
                 log_error "Unknown option: $1"
                 usage
@@ -1898,6 +2254,10 @@ main() {
     
     # Phase 2: System resource monitoring
     check_system_resources
+    
+    # Phase 3: Initialize enhanced monitoring
+    initialize_metrics
+    generate_status_report "starting" "Backup session initiated"
     
     # Phase 2: Scan directories and update .dirlist
     log_progress "=== PHASE 2: Directory Scanning ==="
@@ -1996,18 +2356,44 @@ main() {
         # Track the first failure exit code to return the appropriate error type
         local first_failure_exit_code=0
         
-        # Process each enabled directory
+        # Process each enabled directory with progress tracking
         for dir_name in "${!DIRLIST_ARRAY[@]}"; do
             if [[ "${DIRLIST_ARRAY[$dir_name]}" == "true" ]]; then
                 processed_count=$((processed_count + 1))
+                
+                # Update progress bar
+                show_progress "$processed_count" "$enabled_count" "Processing directories"
+                
                 log_progress "Processing directory $processed_count of $enabled_count: $dir_name"
                 log_debug "About to call process_directory for: $dir_name"
                 
+                # JSON logging for directory start
+                log_json "directory_start" "$dir_name" "processing" "Starting backup process"
+                collect_metric "directory_start" "$(date +%s)" "$dir_name"
+                
+                local dir_start_time
+                dir_start_time="$(date +%s)"
+                
                 if process_directory "$dir_name"; then
+                    local dir_end_time
+                    dir_end_time="$(date +%s)"
+                    local dir_duration=$((dir_end_time - dir_start_time))
+                    
                     log_info "Successfully completed processing: $dir_name"
+                    log_json "directory_complete" "$dir_name" "success" "Backup completed in ${dir_duration}s"
+                    collect_metric "directory_duration" "$dir_duration" "$dir_name"
+                    collect_metric "directory_success" "1" "$dir_name"
                 else
                     local exit_code=$?
+                    local dir_end_time
+                    dir_end_time="$(date +%s)"
+                    local dir_duration=$((dir_end_time - dir_start_time))
+                    
                     log_error "Failed to process directory: $dir_name (exit code: $exit_code)"
+                    log_json "directory_error" "$dir_name" "failed" "Backup failed with exit code $exit_code after ${dir_duration}s"
+                    collect_metric "directory_duration" "$dir_duration" "$dir_name"
+                    collect_metric "directory_error" "$exit_code" "$dir_name"
+                    
                     failed_count=$((failed_count + 1))
                     
                     # Preserve the first failure exit code to return the appropriate error type
