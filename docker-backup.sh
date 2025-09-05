@@ -1291,6 +1291,394 @@ restore_preview() {
 }
 
 #######################################
+# Phase 4: Configuration Management Functions
+#######################################
+
+# Generate configuration template
+generate_config_template() {
+    local template_file="${1:-$SCRIPT_DIR/backup.conf.template}"
+    
+    log_info "Generating configuration template: $template_file"
+    
+    if [[ -f "$template_file" ]] && [[ "$DRY_RUN" != "true" ]]; then
+        log_warn "Template file already exists: $template_file"
+        echo "Overwrite existing template? (y/N): "
+        read -r response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            log_info "Template generation cancelled"
+            return 0
+        fi
+    fi
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would generate configuration template: $template_file"
+        return 0
+    fi
+    
+    cat > "$template_file" << 'EOF'
+# Docker Stack 3-Stage Backup System Configuration Template
+# Copy this file to backup.conf and customize for your environment
+
+#######################################
+# Core Backup Settings (Required)
+#######################################
+
+# Directory containing Docker compose stacks to backup
+# This should be the parent directory containing subdirectories with docker-compose.yml files
+BACKUP_DIR=/opt/docker-stacks
+
+# Restic repository configuration (local path, sftp://, s3://, etc.)
+RESTIC_REPOSITORY=/path/to/restic/repository
+
+# Restic repository password
+# WARNING: Stored in plain text - use file permissions (chmod 600) to protect
+RESTIC_PASSWORD=your-secure-password
+
+#######################################
+# Enhanced Security Options (Phase 1)
+#######################################
+
+# Enable password file support (more secure than inline password)
+# ENABLE_PASSWORD_FILE=true
+# RESTIC_PASSWORD_FILE=/path/to/password/file
+
+# Enable password command support (most secure option)
+# ENABLE_PASSWORD_COMMAND=true
+# RESTIC_PASSWORD_COMMAND="pass show backup/restic"
+
+#######################################
+# Backup Verification (Phase 1)
+#######################################
+
+# Enable post-backup verification
+ENABLE_BACKUP_VERIFICATION=true
+
+# Verification depth: metadata, files, or data
+VERIFICATION_DEPTH=files
+
+#######################################
+# Resource Monitoring (Phase 2)
+#######################################
+
+# Minimum required disk space in MB
+MIN_DISK_SPACE_MB=1024
+
+# Enable system resource monitoring
+CHECK_SYSTEM_RESOURCES=true
+
+# Memory threshold in MB for warnings
+MEMORY_THRESHOLD_MB=512
+
+# System load threshold percentage for warnings
+LOAD_THRESHOLD=80
+
+#######################################
+# Performance Options (Phase 2)
+#######################################
+
+# Enable performance mode (experimental features)
+ENABLE_PERFORMANCE_MODE=false
+
+# Enable Docker state caching to reduce API calls
+ENABLE_DOCKER_STATE_CACHE=false
+
+# Enable parallel processing (experimental - use with caution)
+ENABLE_PARALLEL_PROCESSING=false
+MAX_PARALLEL_JOBS=2
+
+#######################################
+# Enhanced Monitoring (Phase 3)
+#######################################
+
+# Enable JSON logging for monitoring systems
+ENABLE_JSON_LOGGING=false
+JSON_LOG_FILE=/path/to/json/backup.log
+
+# Enable progress bars during operations
+ENABLE_PROGRESS_BARS=true
+
+# Enable metrics collection
+ENABLE_METRICS_COLLECTION=false
+METRICS_FILE=/path/to/metrics/backup_metrics.txt
+
+#######################################
+# Timeouts and Limits
+#######################################
+
+# Backup timeout in seconds (default: 3600 = 1 hour)
+BACKUP_TIMEOUT=3600
+
+# Docker command timeout in seconds (default: 30)
+DOCKER_TIMEOUT=30
+
+#######################################
+# Retention Policy (Optional)
+#######################################
+
+# Custom hostname for backup identification
+# HOSTNAME=backup-server
+
+# Retention settings
+KEEP_DAILY=7
+KEEP_WEEKLY=4
+KEEP_MONTHLY=12
+KEEP_YEARLY=3
+
+# Auto-prune after successful backups
+AUTO_PRUNE=false
+
+#######################################
+# Example Configurations
+#######################################
+
+# Small home setup:
+# BACKUP_DIR=/home/user/docker-projects
+# BACKUP_TIMEOUT=1800
+# RESTIC_REPOSITORY=/home/user/backups/restic-repo
+
+# Large production setup:
+# BACKUP_DIR=/srv/docker-stacks
+# BACKUP_TIMEOUT=7200
+# RESTIC_REPOSITORY=sftp:backup-server:/srv/backups/restic-repo
+# ENABLE_BACKUP_VERIFICATION=true
+# CHECK_SYSTEM_RESOURCES=true
+
+# High-security setup:
+# ENABLE_PASSWORD_FILE=true
+# RESTIC_PASSWORD_FILE=/etc/backup/restic.password
+# VERIFICATION_DEPTH=data
+# MIN_DISK_SPACE_MB=5120
+EOF
+    
+    if [[ $? -eq 0 ]]; then
+        chmod 644 "$template_file"
+        log_info "Configuration template created successfully: $template_file"
+        log_info "To use: cp $template_file backup.conf && chmod 600 backup.conf"
+        return 0
+    else
+        log_error "Failed to create configuration template"
+        return $EXIT_CONFIG_ERROR
+    fi
+}
+
+# Enhanced configuration validation
+validate_configuration() {
+    log_debug "Performing enhanced configuration validation"
+    
+    local validation_errors=0
+    local warnings=0
+    
+    # Validate required fields
+    if [[ -z "$BACKUP_DIR" ]]; then
+        log_error "BACKUP_DIR is required but not set"
+        ((validation_errors++))
+    elif [[ ! -d "$BACKUP_DIR" ]]; then
+        log_error "BACKUP_DIR does not exist: $BACKUP_DIR"
+        ((validation_errors++))
+    fi
+    
+    if [[ -z "$RESTIC_REPOSITORY" ]]; then
+        log_error "RESTIC_REPOSITORY is required but not set"
+        ((validation_errors++))
+    fi
+    
+    # Validate password configuration
+    local password_methods=0
+    [[ -n "$RESTIC_PASSWORD" ]] && ((password_methods++))
+    [[ -n "$PASSWORD_FILE" ]] && ((password_methods++))
+    [[ -n "$PASSWORD_COMMAND" ]] && ((password_methods++))
+    
+    if [[ $password_methods -eq 0 ]]; then
+        log_error "No restic password configured (RESTIC_PASSWORD, RESTIC_PASSWORD_FILE, or RESTIC_PASSWORD_COMMAND required)"
+        ((validation_errors++))
+    elif [[ $password_methods -gt 1 ]]; then
+        log_warn "Multiple password methods configured - using priority order"
+        ((warnings++))
+    fi
+    
+    # Validate numeric values
+    for var in BACKUP_TIMEOUT DOCKER_TIMEOUT MIN_DISK_SPACE_MB MEMORY_THRESHOLD_MB LOAD_THRESHOLD; do
+        local value
+        eval "value=\$$var"
+        if [[ -n "$value" && ! "$value" =~ ^[0-9]+$ ]]; then
+            log_error "Invalid numeric value for $var: $value"
+            ((validation_errors++))
+        fi
+    done
+    
+    # Validate timeout ranges
+    if [[ -n "$BACKUP_TIMEOUT" && ( "$BACKUP_TIMEOUT" -lt 60 || "$BACKUP_TIMEOUT" -gt 86400 ) ]]; then
+        log_warn "BACKUP_TIMEOUT outside recommended range (60-86400 seconds): $BACKUP_TIMEOUT"
+        ((warnings++))
+    fi
+    
+    if [[ -n "$DOCKER_TIMEOUT" && ( "$DOCKER_TIMEOUT" -lt 5 || "$DOCKER_TIMEOUT" -gt 300 ) ]]; then
+        log_warn "DOCKER_TIMEOUT outside recommended range (5-300 seconds): $DOCKER_TIMEOUT"
+        ((warnings++))
+    fi
+    
+    # Validate file permissions
+    if [[ -f "$CONFIG_FILE" ]]; then
+        local perms
+        perms="$(stat -c %a "$CONFIG_FILE" 2>/dev/null)"
+        if [[ "${perms:1:2}" != "00" ]]; then
+            log_warn "Configuration file has permissive permissions: $CONFIG_FILE ($perms)"
+            log_warn "Consider: chmod 600 $CONFIG_FILE"
+            ((warnings++))
+        fi
+    fi
+    
+    # Summary
+    if [[ $validation_errors -gt 0 ]]; then
+        log_error "Configuration validation failed with $validation_errors errors"
+        return $EXIT_CONFIG_ERROR
+    elif [[ $warnings -gt 0 ]]; then
+        log_warn "Configuration validation completed with $warnings warnings"
+        return 0
+    else
+        log_info "Configuration validation passed successfully"
+        return 0
+    fi
+}
+
+#######################################
+# Phase 4: Operational Features
+#######################################
+
+# Generate health check report
+generate_health_report() {
+    local health_file="${1:-$SCRIPT_DIR/logs/backup_health.json}"
+    local health_dir
+    health_dir="$(dirname "$health_file")"
+    
+    log_debug "Generating health report: $health_file"
+    
+    # Ensure health directory exists
+    if [[ ! -d "$health_dir" ]]; then
+        mkdir -p "$health_dir" || {
+            log_error "Cannot create health report directory: $health_dir"
+            return 1
+        }
+    fi
+    
+    # Get last run information
+    local last_run_timestamp=""
+    local last_run_status="unknown"
+    local failed_directories=0
+    local total_directories=0
+    
+    if [[ -f "$LOG_FILE" ]]; then
+        last_run_timestamp=$(grep "Backup completed" "$LOG_FILE" | tail -1 | awk '{print $1" "$2}' | sed 's/\[//g')
+        if grep -q "failed: 0" "$LOG_FILE" | tail -1; then
+            last_run_status="success"
+        elif grep -q "failed:" "$LOG_FILE" | tail -1; then
+            last_run_status="partial_failure"
+            failed_directories=$(grep "failed:" "$LOG_FILE" | tail -1 | sed 's/.*failed: \([0-9]*\).*/\1/')
+        fi
+    fi
+    
+    # Count enabled directories
+    if [[ -f "$DIRLIST_FILE" ]]; then
+        total_directories=$(grep "=true" "$DIRLIST_FILE" | wc -l)
+    fi
+    
+    # Get repository information
+    local repo_size=""
+    local snapshot_count=""
+    if restic snapshots --quiet >/dev/null 2>&1; then
+        snapshot_count=$(restic snapshots --json 2>/dev/null | jq '. | length' 2>/dev/null || echo "0")
+        repo_size=$(restic stats --json 2>/dev/null | jq -r '.total_size // "unknown"' 2>/dev/null || echo "unknown")
+    fi
+    
+    # Generate JSON health report
+    local health_report
+    health_report=$(cat <<EOF
+{
+    "timestamp": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+    "script_version": "2.0",
+    "status": "$last_run_status",
+    "last_run": {
+        "timestamp": "$last_run_timestamp",
+        "status": "$last_run_status",
+        "failed_directories": $failed_directories,
+        "total_directories": $total_directories
+    },
+    "repository": {
+        "path": "${RESTIC_REPOSITORY:0:50}...",
+        "total_size": "$repo_size",
+        "snapshot_count": $snapshot_count
+    },
+    "configuration": {
+        "backup_dir": "$BACKUP_DIR",
+        "verification_enabled": "$ENABLE_BACKUP_VERIFICATION",
+        "verification_depth": "$VERIFICATION_DEPTH",
+        "resource_monitoring": "$CHECK_SYSTEM_RESOURCES",
+        "json_logging": "$ENABLE_JSON_LOGGING"
+    },
+    "system": {
+        "hostname": "$(hostname)",
+        "disk_space_mb": $(df -BM "$BACKUP_DIR" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/M//' || echo "0"),
+        "load_average": "$(uptime | awk '{print $(NF-2)}' | sed 's/,//')",
+        "script_pid": $$
+    }
+}
+EOF
+    )
+    
+    if echo "$health_report" > "$health_file"; then
+        log_debug "Health report generated successfully"
+        return 0
+    else
+        log_error "Failed to generate health report"
+        return 1
+    fi
+}
+
+# Notification system
+send_notification() {
+    local event_type="$1"
+    local message="$2"
+    local details="${3:-}"
+    
+    log_debug "Notification: $event_type - $message"
+    
+    # Placeholder for notification integration
+    # Users can customize this function for their notification needs
+    
+    case "$event_type" in
+        "backup_started")
+            log_info "📋 Backup process started"
+            ;;
+        "backup_completed")
+            if [[ "$details" == "success" ]]; then
+                log_info "✅ Backup completed successfully"
+            else
+                log_warn "⚠️ Backup completed with issues: $details"
+            fi
+            ;;
+        "backup_failed")
+            log_error "❌ Backup process failed: $message"
+            ;;
+        "low_disk_space")
+            log_warn "💾 Low disk space warning: $message"
+            ;;
+        "repository_issue")
+            log_error "🗃️ Repository health issue: $message"
+            ;;
+        *)
+            log_info "📢 Notification: $message"
+            ;;
+    esac
+    
+    # Example integrations (commented out - users can enable as needed):
+    # Email: echo "$message" | mail -s "Backup $event_type" admin@example.com
+    # Slack: curl -X POST -H 'Content-type: application/json' --data '{"text":"'"$message"'"}' $SLACK_WEBHOOK
+    # Syslog: logger -t docker-backup "$event_type: $message"
+    
+    return 0
+}
+
+#######################################
 # Directory List Management
 #######################################
 
@@ -2127,6 +2515,9 @@ OPTIONS:
     -h, --help            Display this help message
     --list-backups        List recent backup snapshots
     --restore-preview DIR Preview restore for directory
+    --generate-config     Generate configuration template
+    --validate-config     Validate configuration file
+    --health-check        Generate health check report
 
 CONFIGURATION:
     Configuration is read from: $CONFIG_FILE (in script directory)
@@ -2206,6 +2597,29 @@ parse_arguments() {
                 restore_preview "$2"
                 exit $?
                 ;;
+            --generate-config)
+                # Initialize logging for this command
+                init_logging
+                generate_config_template
+                exit $?
+                ;;
+            --validate-config)
+                # Initialize logging and load config for validation
+                init_logging
+                load_config || exit $?
+                validate_configuration
+                exit $?
+                ;;
+            --health-check)
+                # Initialize logging and load config for health check
+                init_logging
+                load_config || exit $?
+                generate_health_report
+                if [[ $? -eq 0 ]]; then
+                    log_info "Health check report generated: $SCRIPT_DIR/logs/backup_health.json"
+                fi
+                exit $?
+                ;;
             *)
                 log_error "Unknown option: $1"
                 usage
@@ -2229,7 +2643,10 @@ main() {
     
     # Load and validate configuration
     load_config || exit $?
-    validate_config || exit $?
+    validate_configuration || exit $?
+    
+    # Send backup started notification
+    send_notification "backup_started" "Docker backup process initiated"
     
     # Phase 1: Enhanced pre-flight checks
     log_progress "=== Phase 1: Pre-flight Security and Health Checks ==="
@@ -2415,11 +2832,16 @@ main() {
     log_progress "Directories processed: $processed_count"
     log_progress "Directories failed: $failed_count"
     
+    # Generate health report
+    generate_health_report
+    
     if [[ $failed_count -gt 0 ]]; then
         log_warn "Some directories failed to process. Check logs for details."
+        send_notification "backup_completed" "Backup completed with issues" "failed: $failed_count of $enabled_count"
         exit $first_failure_exit_code
     fi
     
+    send_notification "backup_completed" "Backup completed successfully" "success"
     exit $EXIT_SUCCESS
 }
 
