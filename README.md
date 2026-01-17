@@ -5,13 +5,16 @@ A comprehensive 3-stage backup solution for Docker compose stacks using restic w
 ## Quick Start
 
 ```bash
-# 1. Launch the Text User Interface
+# 1. Run installation
+./install.sh
+
+# 2. Launch the Text User Interface
 ./bin/backup-tui.sh
 
-# 2. Or run backup directly  
+# 3. Or run backup directly  
 ./bin/docker-backup.sh
 
-# 3. Or run individual stages
+# 4. Or run individual stages
 ./scripts/rclone_backup.sh    # Cloud sync
 ./scripts/rclone_restore.sh   # Cloud restore
 ```
@@ -37,11 +40,14 @@ A comprehensive 3-stage backup solution for Docker compose stacks using restic w
 ├── config/                # Configuration files
 │   ├── backup.conf        # Main configuration (copy from template)
 │   └── backup.conf.template # Template configuration
+├── lib/                   # Shared libraries
+│   └── common.sh          # Common functions (logging, locking, validation)
+├── locks/                 # Lock files for concurrent access prevention
 ├── utils/                 # Maintenance utilities
 ├── docs/                  # Documentation
 ├── testing/               # Test suite
-├── docker-stacks/         # Your Docker compose directories
-└── logs/                  # Runtime logs
+├── logs/                  # Runtime logs
+└── dirlist                # Directory selection for backups
 ```
 
 ## Configuration
@@ -63,20 +69,91 @@ A comprehensive 3-stage backup solution for Docker compose stacks using restic w
    rclone config
    ```
 
+## Text User Interface (TUI)
+
+The TUI provides a comprehensive interface for managing all backup operations:
+
+```bash
+./bin/backup-tui.sh
+```
+
+### TUI Features
+
+- **Breadcrumb Navigation** - Always know where you are in the menu hierarchy
+- **Quick Shortcuts** - Press `Q` for Quick Backup, `S` for Quick Status from main menu
+- **Auto-Sync Detection** - Automatically detects when directories have been added/removed
+- **Detailed Validation** - Comprehensive prerequisite checks with detailed feedback
+- **Directory Management** - Enable/disable directories, bulk operations, import/export
+
+### Main Menu Options
+
+| Option | Description |
+|--------|-------------|
+| Stage 1: Docker Stack Backup | Local restic backup operations |
+| Stage 2: Cloud Sync | Upload backups to cloud storage |
+| Stage 3: Cloud Restore | Download and restore from cloud |
+| Configuration Management | Edit configs, manage rclone remotes |
+| Directory List Management | Select which directories to backup |
+| Monitoring & Status | View system status and resources |
+| System Health Check | Verify all prerequisites |
+| View Logs | Access backup and sync logs |
+
+### Directory Management
+
+The TUI includes comprehensive directory management:
+
+- **Auto-Sync Detection** - Shows `[!]` indicator when directories are out of sync
+- **Bulk Operations** - Enable/disable all, pattern matching, templates
+- **Import/Export** - Save and restore directory configurations
+- **Validation** - Check dirlist file format and content
+
+## Directory List Management (Standalone)
+
+Manage backup directories independently:
+
+```bash
+# Interactive mode
+./bin/manage-dirlist.sh
+
+# Sync directories before showing interface
+./bin/manage-dirlist.sh --prune
+
+# Only sync, no interface
+./bin/manage-dirlist.sh --prune-only
+```
+
 ## Features
 
-- **Text User Interface (TUI)** - Unified management interface
-- **Selective Backup** - Choose which Docker stacks to backup
+- **Text User Interface (TUI)** - Unified management interface with breadcrumb navigation
+- **Selective Backup** - Choose which Docker stacks to backup via dirlist
+- **Auto-Sync Detection** - Automatically detects new/removed directories
+- **File Locking** - Prevents concurrent modifications to configuration
 - **Sequential Processing** - Safe, controlled operations
 - **Smart Docker Management** - Only affects running stacks
 - **Comprehensive Logging** - Detailed progress and error tracking
 - **Dry Run Mode** - Test operations without changes
 - **Signal Handling** - Graceful shutdown and cleanup
+- **Detailed Validation** - Prerequisite checks with itemized feedback
+
+## Shared Library
+
+The `lib/common.sh` library provides shared functionality:
+
+- **Logging** - Consistent log format with levels (INFO, WARN, ERROR, DEBUG)
+- **Input Validation** - Path sanitization, directory name validation
+- **File Locking** - Prevent concurrent access with `flock`
+- **Temp File Management** - Automatic cleanup of temporary files
+- **Configuration Parsing** - Secure config file loading
+- **Password Security** - Safe password handling (file, command, or direct)
 
 ## Prerequisites
 
 ```bash
-sudo apt-get install dialog rclone restic docker.io
+# Required
+sudo apt-get install dialog restic docker.io
+
+# Optional (for cloud sync)
+sudo apt-get install rclone
 ```
 
 ## Documentation
@@ -92,6 +169,18 @@ cd testing/scripts
 ./run-tests.sh --all      # Run complete test suite
 ./run-tests.sh --docker   # Run tests in Docker environment
 ```
+
+## Keyboard Shortcuts (TUI)
+
+| Key | Action |
+|-----|--------|
+| `Q` | Quick Backup (from main menu) |
+| `S` | Quick Status (from main menu) |
+| `Space` | Toggle selection in checklists |
+| `Enter` | Confirm selection |
+| `Esc` | Cancel / Go back |
+| `Tab` | Move between buttons |
+| Arrow keys | Navigate menus |
 
 ---
 

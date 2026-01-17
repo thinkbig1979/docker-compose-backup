@@ -1,0 +1,66 @@
+# Rclone Backup Configuration Template
+# Copy this file to rclone.conf and customize for your environment
+# chmod 600 rclone.conf  # Recommended for security
+
+#######################################
+# Required Settings
+#######################################
+
+# Remote name (as configured in 'rclone config')
+# Run 'rclone listremotes' to see available remotes
+RCLONE_REMOTE="your-remote-name"
+
+# Local source directory to sync (usually the restic repository)
+# This should match RESTIC_REPOSITORY from backup.conf
+RCLONE_SOURCE_DIR="/path/to/restic/repository"
+
+# Remote backup path (where backups will be stored on the remote)
+RCLONE_BACKUP_PATH="/backup/restic"
+
+#######################################
+# Optional Settings
+#######################################
+
+# Log file location (default: script logs directory)
+# RCLONE_LOG_FILE="/var/log/rclone_backup.log"
+
+# Number of concurrent file transfers (default: 4)
+# Reduce if you have bandwidth or rate limiting concerns
+RCLONE_TRANSFERS=4
+
+# Number of retry attempts on failure (default: 3)
+RCLONE_RETRIES=3
+
+# Bandwidth limit (default: unlimited)
+# Examples: "1M" (1 MB/s), "500k" (500 KB/s)
+# RCLONE_BANDWIDTH=""
+
+# Extra rclone options (advanced)
+# Example: "--fast-list --checksum"
+# RCLONE_EXTRA_OPTIONS=""
+
+#######################################
+# Restore Settings
+#######################################
+
+# Default restore target directory
+# RCLONE_RESTORE_DIR="/tmp/restored_backup"
+
+#######################################
+# Example Configurations
+#######################################
+
+# AWS S3 Example:
+# RCLONE_REMOTE="s3-backup"
+# RCLONE_SOURCE_DIR="/srv/restic-repo"
+# RCLONE_BACKUP_PATH="/docker-backups/restic"
+
+# Google Drive Example:
+# RCLONE_REMOTE="gdrive"
+# RCLONE_SOURCE_DIR="/home/user/backups/restic"
+# RCLONE_BACKUP_PATH="/Backups/DockerStacks"
+
+# Backblaze B2 Example:
+# RCLONE_REMOTE="b2"
+# RCLONE_SOURCE_DIR="/opt/restic-backup"
+# RCLONE_BACKUP_PATH="/restic-repo"

@@ -7,40 +7,77 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "🔧 Setting up Docker Stack 3-Stage Backup System..."
+echo "========================================"
+echo "Docker Stack 3-Stage Backup System"
+echo "Installation Script"
+echo "========================================"
+echo ""
 
 # Create necessary directories
-echo "📁 Creating directory structure..."
+echo "[1/4] Creating directory structure..."
 mkdir -p "$SCRIPT_DIR/logs"
-mkdir -p "$SCRIPT_DIR/docker-stacks"
+mkdir -p "$SCRIPT_DIR/locks"
+mkdir -p "$SCRIPT_DIR/lib"
+mkdir -p "$SCRIPT_DIR/config"
+echo "      Created: logs/, locks/, lib/, config/"
 
 # Set up configuration
+echo ""
+echo "[2/4] Setting up configuration..."
 if [[ ! -f "$SCRIPT_DIR/config/backup.conf" ]]; then
-    echo "⚙️  Creating backup.conf from template..."
-    cp "$SCRIPT_DIR/config/backup.conf.template" "$SCRIPT_DIR/config/backup.conf"
-    echo "✏️  Please edit config/backup.conf with your settings"
+    if [[ -f "$SCRIPT_DIR/config/backup.conf.template" ]]; then
+        cp "$SCRIPT_DIR/config/backup.conf.template" "$SCRIPT_DIR/config/backup.conf"
+        chmod 600 "$SCRIPT_DIR/config/backup.conf"
+        echo "      Created backup.conf from template"
+        echo "      IMPORTANT: Edit config/backup.conf with your settings!"
+    else
+        echo "      WARNING: backup.conf.template not found"
+    fi
 else
-    echo "✅ backup.conf already exists"
+    echo "      backup.conf already exists"
 fi
 
 # Make scripts executable
-echo "🔐 Setting script permissions..."
-chmod +x "$SCRIPT_DIR/bin"/*.sh
-chmod +x "$SCRIPT_DIR/scripts"/*.sh
-chmod +x "$SCRIPT_DIR/utils"/*.sh 2>/dev/null || true
+echo ""
+echo "[3/4] Setting script permissions..."
+chmod +x "$SCRIPT_DIR/bin"/*.sh 2>/dev/null && echo "      bin/*.sh - executable" || true
+chmod +x "$SCRIPT_DIR/scripts"/*.sh 2>/dev/null && echo "      scripts/*.sh - executable" || true
+chmod +x "$SCRIPT_DIR/utils"/*.sh 2>/dev/null && echo "      utils/*.sh - executable" || true
 
 # Create empty dirlist if it doesn't exist
+echo ""
+echo "[4/4] Initializing dirlist..."
 if [[ ! -f "$SCRIPT_DIR/dirlist" ]]; then
-    echo "📝 Creating empty dirlist file..."
-    touch "$SCRIPT_DIR/dirlist"
+    cat > "$SCRIPT_DIR/dirlist" << 'EOF'
+# Directory list for selective backup
+# Format: directory_name=true|false
+# true = backup enabled, false = skip backup
+#
+# This file will be populated when you run the TUI
+# and select directories for backup.
+EOF
+    echo "      Created empty dirlist file"
+else
+    echo "      dirlist already exists"
 fi
 
 echo ""
-echo "✅ Installation complete!"
+echo "========================================"
+echo "Installation complete!"
+echo "========================================"
 echo ""
-echo "Next steps:"
-echo "1. Edit config/backup.conf with your settings"
-echo "2. Configure rclone for cloud storage: rclone config"
-echo "3. Launch the TUI: ./bin/backup-tui.sh"
+echo "REQUIRED: Configure before first use"
+echo "----------------------------------------"
+echo "1. Edit config/backup.conf:"
+echo "   - Set BACKUP_DIR to your Docker stacks location"
+echo "   - Set RESTIC_REPOSITORY path"
+echo "   - Set RESTIC_PASSWORD"
+echo ""
+echo "2. (Optional) Configure cloud storage:"
+echo "   rclone config"
+echo ""
+echo "3. Launch the TUI:"
+echo "   ./bin/backup-tui.sh"
 echo ""
 echo "For help: ./bin/backup-tui.sh --help"
+echo "========================================"
