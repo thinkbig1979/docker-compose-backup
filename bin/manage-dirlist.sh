@@ -654,9 +654,10 @@ apply_pruning_changes() {
         updated_dirlist["$new_dir"]="false"
     done
 
-    # Update the global EXISTING_DIRLIST
-    unset EXISTING_DIRLIST
-    declare -gA EXISTING_DIRLIST
+    # Clear and repopulate EXISTING_DIRLIST (avoid unset to preserve nameref compatibility)
+    for dir in "${!EXISTING_DIRLIST[@]}"; do
+        unset "EXISTING_DIRLIST[$dir]"
+    done
     for dir in "${!updated_dirlist[@]}"; do
         EXISTING_DIRLIST["$dir"]="${updated_dirlist[$dir]}"
     done
