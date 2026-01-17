@@ -21,6 +21,9 @@ readonly LOCKS_DIR="$SCRIPT_DIR/../locks"
 # Source common library if available
 if [[ -f "$LIB_DIR/common.sh" ]]; then
     source "$LIB_DIR/common.sh"
+    COMMON_LIB_LOADED=true
+else
+    COMMON_LIB_LOADED=false
 fi
 
 # Default configuration
@@ -87,13 +90,15 @@ readonly BLUE='\033[0;34m'
 readonly CYAN='\033[0;36m'
 readonly NC='\033[0m' # No Color
 
-# Exit codes
-readonly EXIT_SUCCESS=0
-readonly EXIT_CONFIG_ERROR=1
-readonly EXIT_VALIDATION_ERROR=2
-readonly EXIT_BACKUP_ERROR=3
-readonly EXIT_DOCKER_ERROR=4
-readonly EXIT_SIGNAL_ERROR=5
+# Exit codes (only define if common library not loaded, as it defines these)
+if [[ "${COMMON_LIB_LOADED:-false}" != "true" ]]; then
+    readonly EXIT_SUCCESS=0
+    readonly EXIT_CONFIG_ERROR=1
+    readonly EXIT_VALIDATION_ERROR=2
+    readonly EXIT_BACKUP_ERROR=3
+    readonly EXIT_DOCKER_ERROR=4
+    readonly EXIT_SIGNAL_ERROR=5
+fi
 
 #######################################
 # Logging Functions

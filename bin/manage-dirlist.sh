@@ -24,12 +24,16 @@ if [[ -f "$LIB_DIR/common.sh" ]]; then
     COMMON_LIB_LOADED=true
 else
     COMMON_LIB_LOADED=false
+    # Exit codes (only define if common library not loaded, as it defines these)
+    readonly EXIT_SUCCESS=0
+    readonly EXIT_CONFIG_ERROR=1
+    readonly EXIT_LOCK_ERROR=6
 fi
 
 # Default configuration
 BACKUP_DIR=""
 
-# Color codes for output
+# Color codes for output (use different names to avoid conflict with common.sh)
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
@@ -37,12 +41,9 @@ readonly BLUE='\033[0;34m'
 readonly CYAN='\033[0;36m'
 readonly NC='\033[0m' # No Color
 
-# Exit codes
-readonly EXIT_SUCCESS=0
-readonly EXIT_CONFIG_ERROR=1
+# Exit codes specific to this script (not in common.sh)
 readonly EXIT_DIALOG_ERROR=2
 readonly EXIT_USER_CANCEL=3
-readonly EXIT_LOCK_ERROR=6
 
 # Lock file descriptor (if common lib not available)
 LOCK_FD=200
