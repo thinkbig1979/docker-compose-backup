@@ -3,6 +3,7 @@ package backup
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -21,17 +22,19 @@ const (
 
 // DockerManager handles Docker compose operations
 type DockerManager struct {
-	timeout     time.Duration
-	stackStates map[string]StackState
-	dryRun      bool
+	timeout      time.Duration
+	stackStates  map[string]StackState
+	dryRun       bool
+	outputWriter io.Writer
 }
 
 // NewDockerManager creates a new Docker manager
-func NewDockerManager(timeoutSeconds int, dryRun bool) *DockerManager {
+func NewDockerManager(timeoutSeconds int, dryRun bool, outputWriter io.Writer) *DockerManager {
 	return &DockerManager{
-		timeout:     time.Duration(timeoutSeconds) * time.Second,
-		stackStates: make(map[string]StackState),
-		dryRun:      dryRun,
+		timeout:      time.Duration(timeoutSeconds) * time.Second,
+		stackStates:  make(map[string]StackState),
+		dryRun:       dryRun,
+		outputWriter: outputWriter,
 	}
 }
 
@@ -105,10 +108,11 @@ func (d *DockerManager) SmartStop(name, dirPath string) error {
 	// Stop with timeout
 	timeout := d.timeout + 30*time.Second // Extra buffer for command overhead
 	opts := util.CommandOptions{
-		Dir:       dirPath,
-		Timeout:   timeout,
-		StreamOut: true,
-		StreamErr: true,
+		Dir:          dirPath,
+		Timeout:      timeout,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: d.outputWriter,
 	}
 
 	result, err := util.RunCommand("docker", []string{
@@ -155,10 +159,11 @@ func (d *DockerManager) SmartStart(name, dirPath string) error {
 
 	timeout := d.timeout + 30*time.Second
 	opts := util.CommandOptions{
-		Dir:       dirPath,
-		Timeout:   timeout,
-		StreamOut: true,
-		StreamErr: true,
+		Dir:          dirPath,
+		Timeout:      timeout,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: d.outputWriter,
 	}
 
 	result, err := util.RunCommand("docker", []string{"compose", "start"}, opts)
@@ -184,10 +189,11 @@ func (d *DockerManager) ForceStart(name, dirPath string) error {
 	}
 
 	opts := util.CommandOptions{
-		Dir:       dirPath,
-		Timeout:   d.timeout + 30*time.Second,
-		StreamOut: true,
-		StreamErr: true,
+		Dir:          dirPath,
+		Timeout:      d.timeout + 30*time.Second,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: d.outputWriter,
 	}
 
 	_, err := util.RunCommand("docker", []string{"compose", "start"}, opts)

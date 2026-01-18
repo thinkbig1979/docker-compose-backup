@@ -46,6 +46,7 @@ type CommandOptions struct {
 	StreamErr  bool              // Stream stderr to os.Stderr
 	CaptureOut bool              // Capture stdout (default true)
 	CaptureErr bool              // Capture stderr (default true)
+	OutputWriter io.Writer       // Custom writer for output (if set, used instead of os.Stdout/Stderr)
 }
 
 // DefaultOptions returns default command options
@@ -100,14 +101,22 @@ func RunCommand(name string, args []string, opts CommandOptions) (*CommandResult
 		stdoutWriters = append(stdoutWriters, &stdout)
 	}
 	if opts.StreamOut {
-		stdoutWriters = append(stdoutWriters, os.Stdout)
+		if opts.OutputWriter != nil {
+			stdoutWriters = append(stdoutWriters, opts.OutputWriter)
+		} else {
+			stdoutWriters = append(stdoutWriters, os.Stdout)
+		}
 	}
 
 	if opts.CaptureErr {
 		stderrWriters = append(stderrWriters, &stderr)
 	}
 	if opts.StreamErr {
-		stderrWriters = append(stderrWriters, os.Stderr)
+		if opts.OutputWriter != nil {
+			stderrWriters = append(stderrWriters, opts.OutputWriter)
+		} else {
+			stderrWriters = append(stderrWriters, os.Stderr)
+		}
 	}
 
 	if len(stdoutWriters) > 0 {

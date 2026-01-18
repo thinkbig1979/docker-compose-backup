@@ -3,6 +3,7 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -16,7 +17,24 @@ import (
 	"backup-tui/internal/cloud"
 	"backup-tui/internal/config"
 	"backup-tui/internal/dirlist"
+	"backup-tui/internal/util"
 )
+
+// TUIWriter implements io.Writer and writes to the TUI output view
+type TUIWriter struct {
+	app    *App
+}
+
+// Write implements io.Writer
+func (w *TUIWriter) Write(p []byte) (n int, err error) {
+	w.app.appendOutput(string(p))
+	return len(p), nil
+}
+
+// newTUIWriter creates a new TUIWriter
+func (a *App) newTUIWriter() io.Writer {
+	return &TUIWriter{app: a}
+}
 
 // Debug logger - writes to /tmp/tui-debug.log
 var debugLog *log.Logger
@@ -165,11 +183,9 @@ func (a *App) createMainMenu() *tview.Flex {
 		AddItem("4. Directory Management", "Select directories to backup", '4', nil).
 		AddItem("5. Status & Logs", "View system status", '5', nil).
 		AddItem("", "", '-', nil).
-		AddItem("B. Quick Backup", "Run backup now", 'b', nil).
-		AddItem("D. Dry Run", "Preview backup without changes", 'd', nil).
-		AddItem("S. Quick Status", "Show quick status", 's', nil).
-		AddItem("", "", '-', nil).
-		AddItem("Q. Quit", "Exit the application", 'q', nil)
+		AddItem("R. Run Backup Now", "Run backup now", 'r', nil).
+		AddItem("P. Preview (Dry Run)", "Preview backup without changes", 'p', nil).
+		AddItem("S. Quick Status", "Show quick status", 's', nil)
 
 	menu.SetBorder(true).SetTitle(" Main Menu ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -193,9 +209,16 @@ func (a *App) createMainMenu() *tview.Flex {
 			a.runDryRunBackup()
 		case 8:
 			a.showQuickStatus()
-		case 10:
-			a.app.Stop()
 		}
+	})
+
+	// Handle Q to quit on main menu
+	menu.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Rune() == 'q' || event.Rune() == 'Q' {
+			a.app.Stop()
+			return nil
+		}
+		return event
 	})
 
 	// Status bar
@@ -218,12 +241,10 @@ func (a *App) createBackupMenu() *tview.Flex {
 
 	a.backupMenu = tview.NewList()
 	menu := a.backupMenu.
-		AddItem("Quick Backup", "Run backup with default settings", 'q', nil).
-		AddItem("Dry Run", "Preview what would be backed up", 'd', nil).
-		AddItem("List Snapshots", "Show recent backup snapshots", 'l', nil).
-		AddItem("Verify Repository", "Verify the restic repository", 'v', nil).
-		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
+		AddItem("R. Run Backup", "Run backup with default settings", 'r', nil).
+		AddItem("P. Preview (Dry Run)", "Preview what would be backed up", 'p', nil).
+		AddItem("L. List Snapshots", "Show recent backup snapshots", 'l', nil).
+		AddItem("V. Verify Repository", "Verify the restic repository", 'v', nil)
 
 	menu.SetBorder(true).SetTitle(" Backup Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -239,8 +260,6 @@ func (a *App) createBackupMenu() *tview.Flex {
 			a.showSnapshots()
 		case 3:
 			a.verifyRepository()
-		case 5:
-			a.showPage("main")
 		}
 	})
 
@@ -248,12 +267,16 @@ func (a *App) createBackupMenu() *tview.Flex {
 	instructions := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter).
-		SetText("[white]Select an option or press [yellow]ESC[white] to go back[-:-:-]")
+		SetText("[white]ESC: Back | Q: Quit[-:-:-]")
 
-	// Handle ESC key
+	// Handle ESC and Q keys
 	menu.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape {
 			a.showPage("main")
+			return nil
+		}
+		if event.Rune() == 'q' || event.Rune() == 'Q' {
+			a.app.Stop()
 			return nil
 		}
 		return event
@@ -275,12 +298,10 @@ func (a *App) createSyncMenu() *tview.Flex {
 
 	a.syncMenu = tview.NewList()
 	menu := a.syncMenu.
-		AddItem("Quick Sync", "Sync to cloud with default settings", 'q', nil).
-		AddItem("Dry Run", "Preview what would be synced", 'd', nil).
-		AddItem("Test Connectivity", "Test connection to cloud storage", 't', nil).
-		AddItem("Show Remote Size", "Show size of remote backup", 's', nil).
-		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
+		AddItem("R. Run Sync", "Sync to cloud with default settings", 'r', nil).
+		AddItem("P. Preview (Dry Run)", "Preview what would be synced", 'p', nil).
+		AddItem("T. Test Connectivity", "Test connection to cloud storage", 't', nil).
+		AddItem("S. Show Remote Size", "Show size of remote backup", 's', nil)
 
 	menu.SetBorder(true).SetTitle(" Sync Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -301,9 +322,6 @@ func (a *App) createSyncMenu() *tview.Flex {
 		case 3:
 			debug("Calling showRemoteSize")
 			a.showRemoteSize()
-		case 5:
-			debug("Calling showPage(main)")
-			a.showPage("main")
 		}
 		debug("SyncMenu SetSelectedFunc completed")
 	})
@@ -313,13 +331,17 @@ func (a *App) createSyncMenu() *tview.Flex {
 			a.showPage("main")
 			return nil
 		}
+		if event.Rune() == 'q' || event.Rune() == 'Q' {
+			a.app.Stop()
+			return nil
+		}
 		return event
 	})
 
 	instructions := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter).
-		SetText("[white]Select an option or press [yellow]ESC[white] to go back[-:-:-]")
+		SetText("[white]ESC: Back | Q: Quit[-:-:-]")
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(title, 3, 0, false).
@@ -337,11 +359,9 @@ func (a *App) createRestoreMenu() *tview.Flex {
 
 	a.restoreMenu = tview.NewList()
 	menu := a.restoreMenu.
-		AddItem("Restore Repository", "Download backup from cloud", 'r', nil).
-		AddItem("Restore Preview (Dry Run)", "Preview what would be restored", 'p', nil).
-		AddItem("Test Connectivity", "Test connection to cloud storage", 't', nil).
-		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
+		AddItem("R. Run Restore", "Download backup from cloud", 'r', nil).
+		AddItem("P. Preview (Dry Run)", "Preview what would be restored", 'p', nil).
+		AddItem("T. Test Connectivity", "Test connection to cloud storage", 't', nil)
 
 	menu.SetBorder(true).SetTitle(" Restore Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -355,8 +375,6 @@ func (a *App) createRestoreMenu() *tview.Flex {
 			a.runRestorePreview()
 		case 2:
 			a.testRestoreConnectivity()
-		case 4:
-			a.showPage("main")
 		}
 	})
 
@@ -365,13 +383,17 @@ func (a *App) createRestoreMenu() *tview.Flex {
 			a.showPage("main")
 			return nil
 		}
+		if event.Rune() == 'q' || event.Rune() == 'Q' {
+			a.app.Stop()
+			return nil
+		}
 		return event
 	})
 
 	instructions := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter).
-		SetText("[white]Select an option or press [yellow]ESC[white] to go back[-:-:-]")
+		SetText("[white]ESC: Back | Q: Quit[-:-:-]")
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(title, 3, 0, false).
@@ -389,11 +411,9 @@ func (a *App) createStatusScreen() *tview.Flex {
 
 	a.statusMenu = tview.NewList()
 	menu := a.statusMenu.
-		AddItem("System Status", "Show system health status", 's', nil).
-		AddItem("View Logs", "View recent log entries", 'l', nil).
-		AddItem("Health Check", "Run health diagnostics", 'h', nil).
-		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
+		AddItem("S. System Status", "Show system health status", 's', nil).
+		AddItem("L. View Logs", "View recent log entries", 'l', nil).
+		AddItem("H. Health Check", "Run health diagnostics", 'h', nil)
 
 	menu.SetBorder(true).SetTitle(" Status Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -407,8 +427,6 @@ func (a *App) createStatusScreen() *tview.Flex {
 			a.viewLogs()
 		case 2:
 			a.runHealthCheck()
-		case 4:
-			a.showPage("main")
 		}
 	})
 
@@ -417,13 +435,17 @@ func (a *App) createStatusScreen() *tview.Flex {
 			a.showPage("main")
 			return nil
 		}
+		if event.Rune() == 'q' || event.Rune() == 'Q' {
+			a.app.Stop()
+			return nil
+		}
 		return event
 	})
 
 	instructions := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter).
-		SetText("[white]Select an option or press [yellow]ESC[white] to go back[-:-:-]")
+		SetText("[white]ESC: Back | Q: Quit[-:-:-]")
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(title, 3, 0, false).
@@ -448,11 +470,15 @@ func (a *App) createOutputPage() *tview.Flex {
 	instructions := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter).
-		SetText("[white]Press [yellow]ESC[white] or [yellow]Enter[white] to go back[-:-:-]")
+		SetText("[white]ESC: Back | Q: Quit[-:-:-]")
 
 	a.outputView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEscape || event.Key() == tcell.KeyEnter {
+		if event.Key() == tcell.KeyEscape {
 			a.showPage("main")
+			return nil
+		}
+		if event.Rune() == 'q' || event.Rune() == 'Q' {
+			a.app.Stop()
 			return nil
 		}
 		return event
@@ -474,8 +500,7 @@ func (a *App) createStatusBar() *tview.TextView {
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter)
 
-	status.SetText("[gray]───────────────────────────────────────────────────────[-:-:-]\n" +
-		"[white]Directories: [green]" + itoa(enabled) + " enabled[white] / " + itoa(total) + " total[-:-:-]")
+	status.SetText("[white]Directories: [green]" + itoa(enabled) + " enabled[white] / " + itoa(total) + " total   |   Q: Quit[-:-:-]")
 
 	return status
 }
@@ -501,11 +526,15 @@ func (a *App) runQuickBackup() {
 	a.showOutput("Quick Backup", "Starting backup...\n\nThis will stop Docker containers, backup data, and restart them.\n")
 
 	go func() {
+		// Set up log output to TUI
+		util.SetLogOutputFunc(a.appendOutput)
+		defer util.ClearLogOutputFunc()
+
 		a.appendOutput("[yellow]Validating configuration...[-:-:-]\n")
 
 		if err := a.config.Validate(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Configuration error: %v[-:-:-]\n", err))
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
@@ -513,7 +542,8 @@ func (a *App) runQuickBackup() {
 		a.appendOutput("[yellow]Starting backup service...[-:-:-]\n")
 		a.appendOutput("[gray]Note: Output will appear here. This may take a while.[-:-:-]\n\n")
 
-		svc := backup.NewService(a.config, false, true)
+		// Create service with TUI writer for command output
+		svc := backup.NewServiceWithOutput(a.config, false, true, a.newTUIWriter())
 		if err := svc.Run(); err != nil {
 			a.appendOutput(fmt.Sprintf("\n[red]Backup failed: %v[-:-:-]\n", err))
 		} else {
@@ -521,7 +551,7 @@ func (a *App) runQuickBackup() {
 		}
 
 		stats := svc.GetStats()
-		a.appendOutput(fmt.Sprintf("\n[cyan]Summary:[-:-:-]\n"))
+		a.appendOutput("\n[cyan]Summary:[-:-:-]\n")
 		a.appendOutput(fmt.Sprintf("  Processed: %d\n", stats.Processed))
 		a.appendOutput(fmt.Sprintf("  Succeeded: %d\n", stats.Succeeded))
 		a.appendOutput(fmt.Sprintf("  Failed: %d\n", stats.Failed))
@@ -529,7 +559,7 @@ func (a *App) runQuickBackup() {
 			a.appendOutput(fmt.Sprintf("  Failed dirs: %v\n", stats.FailedDirs))
 		}
 
-		a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+		a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 	}()
 }
 
@@ -537,22 +567,27 @@ func (a *App) runDryRunBackup() {
 	a.showOutput("Dry Run Backup", "Running backup dry run...\n\nThis shows what would be backed up without making changes.\n")
 
 	go func() {
+		// Set up log output to TUI
+		util.SetLogOutputFunc(a.appendOutput)
+		defer util.ClearLogOutputFunc()
+
 		if err := a.config.Validate(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Configuration error: %v[-:-:-]\n", err))
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
 		a.appendOutput("[yellow]Starting dry run...[-:-:-]\n\n")
 
-		svc := backup.NewService(a.config, true, true)
+		// Create service with TUI writer for command output
+		svc := backup.NewServiceWithOutput(a.config, true, true, a.newTUIWriter())
 		if err := svc.Run(); err != nil {
 			a.appendOutput(fmt.Sprintf("\n[red]Dry run failed: %v[-:-:-]\n", err))
 		} else {
 			a.appendOutput("\n[green]Dry run completed![-:-:-]\n")
 		}
 
-		a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+		a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 	}()
 }
 
@@ -588,7 +623,7 @@ func (a *App) verifyRepository() {
 		a.appendOutput("[yellow]Running restic check...[-:-:-]\n")
 		a.appendOutput(fmt.Sprintf("Repository: %s\n\n", a.config.LocalBackup.Repository))
 
-		restic := backup.NewResticManager(&a.config.LocalBackup, false)
+		restic := backup.NewResticManager(&a.config.LocalBackup, false, nil)
 		if err := restic.CheckRepository(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Repository check failed: %v[-:-:-]\n", err))
 		} else {
@@ -607,15 +642,19 @@ func (a *App) runQuickSync() {
 	a.showOutput("Cloud Sync", "Starting cloud sync...\n\nThis will upload the restic repository to cloud storage.\n")
 
 	go func() {
+		// Set up log output to TUI
+		util.SetLogOutputFunc(a.appendOutput)
+		defer util.ClearLogOutputFunc()
+
 		if err := a.config.ValidateForCloudSync(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Configuration error: %v[-:-:-]\n", err))
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
 		if !cloud.RcloneAvailable() {
 			a.appendOutput("[red]rclone is not installed[-:-:-]\n")
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
@@ -623,12 +662,13 @@ func (a *App) runQuickSync() {
 		a.appendOutput(fmt.Sprintf("[cyan]Path: %s[-:-:-]\n", a.config.CloudSync.Path))
 		a.appendOutput(fmt.Sprintf("[cyan]Source: %s[-:-:-]\n\n", a.config.LocalBackup.Repository))
 
-		svc := cloud.NewSyncService(&a.config.CloudSync, a.config.LocalBackup.Repository, false)
+		// Create service with TUI writer for command output
+		svc := cloud.NewSyncServiceWithOutput(&a.config.CloudSync, a.config.LocalBackup.Repository, false, a.newTUIWriter())
 
 		a.appendOutput("[yellow]Testing connectivity...[-:-:-]\n")
 		if err := svc.TestConnectivity(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Connectivity test failed: %v[-:-:-]\n", err))
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 		a.appendOutput("[green]Connectivity OK[-:-:-]\n\n")
@@ -640,7 +680,7 @@ func (a *App) runQuickSync() {
 			a.appendOutput("\n[green]Sync completed successfully![-:-:-]\n")
 		}
 
-		a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+		a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 	}()
 }
 
@@ -651,22 +691,27 @@ func (a *App) runDryRunSync() {
 
 	go func() {
 		debug("runDryRunSync goroutine started")
+		// Set up log output to TUI
+		util.SetLogOutputFunc(a.appendOutput)
+		defer util.ClearLogOutputFunc()
+
 		if err := a.config.ValidateForCloudSync(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Configuration error: %v[-:-:-]\n", err))
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
 		if !cloud.RcloneAvailable() {
 			a.appendOutput("[red]rclone is not installed[-:-:-]\n")
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
 		a.appendOutput(fmt.Sprintf("[cyan]Remote: %s[-:-:-]\n", a.config.CloudSync.Remote))
 		a.appendOutput(fmt.Sprintf("[cyan]Path: %s[-:-:-]\n\n", a.config.CloudSync.Path))
 
-		svc := cloud.NewSyncService(&a.config.CloudSync, a.config.LocalBackup.Repository, true)
+		// Create service with TUI writer for command output
+		svc := cloud.NewSyncServiceWithOutput(&a.config.CloudSync, a.config.LocalBackup.Repository, true, a.newTUIWriter())
 
 		a.appendOutput("[yellow]Running dry run...[-:-:-]\n\n")
 		if err := svc.Sync(); err != nil {
@@ -675,7 +720,7 @@ func (a *App) runDryRunSync() {
 			a.appendOutput("\n[green]Dry run completed![-:-:-]\n")
 		}
 
-		a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+		a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 	}()
 }
 
@@ -757,27 +802,32 @@ func (a *App) runRestore() {
 	a.showOutput("Cloud Restore", fmt.Sprintf("Restoring from cloud...\n\nDestination: %s\n\n", restorePath))
 
 	go func() {
+		// Set up log output to TUI
+		util.SetLogOutputFunc(a.appendOutput)
+		defer util.ClearLogOutputFunc()
+
 		if err := a.config.ValidateForCloudSync(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Configuration error: %v[-:-:-]\n", err))
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
 		if !cloud.RcloneAvailable() {
 			a.appendOutput("[red]rclone is not installed[-:-:-]\n")
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
 		a.appendOutput(fmt.Sprintf("[cyan]Remote: %s[-:-:-]\n", a.config.CloudSync.Remote))
 		a.appendOutput(fmt.Sprintf("[cyan]Path: %s[-:-:-]\n\n", a.config.CloudSync.Path))
 
-		svc := cloud.NewRestoreService(&a.config.CloudSync, false, false)
+		// Create service with TUI writer for command output
+		svc := cloud.NewRestoreServiceWithOutput(&a.config.CloudSync, false, false, a.newTUIWriter())
 
 		a.appendOutput("[yellow]Testing connectivity...[-:-:-]\n")
 		if err := svc.TestConnectivity(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Connectivity test failed: %v[-:-:-]\n", err))
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 		a.appendOutput("[green]Connectivity OK[-:-:-]\n\n")
@@ -795,14 +845,14 @@ func (a *App) runRestore() {
 				a.appendOutput("[green]Verification OK[-:-:-]\n")
 			}
 
-			a.appendOutput(fmt.Sprintf("\n[cyan]Next steps:[-:-:-]\n"))
+			a.appendOutput("\n[cyan]Next steps:[-:-:-]\n")
 			a.appendOutput(fmt.Sprintf("  1. Check restored data: %s\n", restorePath))
-			a.appendOutput(fmt.Sprintf("  2. If restic repo, use:\n"))
+			a.appendOutput("  2. If restic repo, use:\n")
 			a.appendOutput(fmt.Sprintf("     export RESTIC_REPOSITORY=%s\n", restorePath))
 			a.appendOutput("     restic snapshots\n")
 		}
 
-		a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+		a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 	}()
 }
 
@@ -810,22 +860,27 @@ func (a *App) runRestorePreview() {
 	a.showOutput("Restore Preview", "Running restore dry run...\n\nThis shows what would be downloaded without making changes.\n")
 
 	go func() {
+		// Set up log output to TUI
+		util.SetLogOutputFunc(a.appendOutput)
+		defer util.ClearLogOutputFunc()
+
 		if err := a.config.ValidateForCloudSync(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Configuration error: %v[-:-:-]\n", err))
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
 		if !cloud.RcloneAvailable() {
 			a.appendOutput("[red]rclone is not installed[-:-:-]\n")
-			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+			a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 			return
 		}
 
 		a.appendOutput(fmt.Sprintf("[cyan]Remote: %s[-:-:-]\n", a.config.CloudSync.Remote))
 		a.appendOutput(fmt.Sprintf("[cyan]Path: %s[-:-:-]\n\n", a.config.CloudSync.Path))
 
-		svc := cloud.NewRestoreService(&a.config.CloudSync, true, false)
+		// Create service with TUI writer for command output
+		svc := cloud.NewRestoreServiceWithOutput(&a.config.CloudSync, true, false, a.newTUIWriter())
 
 		a.appendOutput("[yellow]Running dry run...[-:-:-]\n\n")
 		if err := svc.Restore("/tmp/restore-preview"); err != nil {
@@ -834,7 +889,7 @@ func (a *App) runRestorePreview() {
 			a.appendOutput("\n[green]Dry run completed![-:-:-]\n")
 		}
 
-		a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
+		a.appendOutput("\n[white]Press ESC to go back[-:-:-]")
 	}()
 }
 
@@ -1043,7 +1098,7 @@ func (a *App) runHealthCheck() {
 
 		// Check repository
 		output.WriteString("[cyan]Restic Repository:[-:-:-] ")
-		restic := backup.NewResticManager(&a.config.LocalBackup, false)
+		restic := backup.NewResticManager(&a.config.LocalBackup, false, nil)
 		if err := restic.CheckRepository(); err != nil {
 			output.WriteString(fmt.Sprintf("[red]ERROR: %v[-:-:-]\n", err))
 		} else {

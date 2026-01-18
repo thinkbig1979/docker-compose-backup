@@ -3,6 +3,7 @@ package cloud
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -12,9 +13,10 @@ import (
 
 // SyncService handles cloud sync operations
 type SyncService struct {
-	config    *config.CloudSyncConfig
-	sourceDir string // Local restic repository path
-	dryRun    bool
+	config       *config.CloudSyncConfig
+	sourceDir    string // Local restic repository path
+	dryRun       bool
+	outputWriter io.Writer
 }
 
 // NewSyncService creates a new sync service
@@ -23,6 +25,16 @@ func NewSyncService(cfg *config.CloudSyncConfig, sourceDir string, dryRun bool) 
 		config:    cfg,
 		sourceDir: sourceDir,
 		dryRun:    dryRun,
+	}
+}
+
+// NewSyncServiceWithOutput creates a new sync service with a custom output writer
+func NewSyncServiceWithOutput(cfg *config.CloudSyncConfig, sourceDir string, dryRun bool, outputWriter io.Writer) *SyncService {
+	return &SyncService{
+		config:       cfg,
+		sourceDir:    sourceDir,
+		dryRun:       dryRun,
+		outputWriter: outputWriter,
 	}
 }
 
@@ -54,9 +66,10 @@ func (s *SyncService) dryRunSync(destination string) error {
 	}
 
 	opts := util.CommandOptions{
-		Timeout:   10 * time.Minute,
-		StreamOut: true,
-		StreamErr: true,
+		Timeout:      10 * time.Minute,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: s.outputWriter,
 	}
 
 	result, err := util.RunCommand("rclone", args, opts)
@@ -119,9 +132,10 @@ func (s *SyncService) doSync(destination string) error {
 	args = append(args, s.sourceDir, destination)
 
 	opts := util.CommandOptions{
-		Timeout:   2 * time.Hour, // Long timeout for large syncs
-		StreamOut: true,
-		StreamErr: true,
+		Timeout:      2 * time.Hour, // Long timeout for large syncs
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: s.outputWriter,
 	}
 
 	result, err := util.RunCommand("rclone", args, opts)

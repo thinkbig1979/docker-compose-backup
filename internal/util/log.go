@@ -30,14 +30,18 @@ const (
 	ColorGray   = "\033[0;37m"
 )
 
+// OutputFunc is a function type for custom output handling
+type OutputFunc func(text string)
+
 // Logger provides structured logging with file and console output
 type Logger struct {
-	mu          sync.Mutex
-	file        *os.File
-	filePath    string
-	verbose     bool
-	useColors   bool
-	consoleOnly bool
+	mu           sync.Mutex
+	file         *os.File
+	filePath     string
+	verbose      bool
+	useColors    bool
+	consoleOnly  bool
+	outputFunc   OutputFunc // Custom output function (for TUI mode)
 }
 
 // NewLogger creates a new logger
@@ -93,6 +97,20 @@ func (l *Logger) SetColors(enabled bool) {
 	l.useColors = enabled
 }
 
+// SetOutputFunc sets a custom output function for TUI mode
+func (l *Logger) SetOutputFunc(fn OutputFunc) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.outputFunc = fn
+}
+
+// ClearOutputFunc clears the custom output function
+func (l *Logger) ClearOutputFunc() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.outputFunc = nil
+}
+
 // log writes a log entry
 func (l *Logger) log(level, color, format string, args ...interface{}) {
 	l.mu.Lock()
@@ -115,6 +133,29 @@ func (l *Logger) log(level, color, format string, args ...interface{}) {
 		level == LevelSuccess
 
 	if showConsole {
+		// If custom output function is set (TUI mode), use it
+		if l.outputFunc != nil {
+			// Convert to tview color tags
+			var tuiColor string
+			switch level {
+			case LevelError:
+				tuiColor = "[red]"
+			case LevelWarn:
+				tuiColor = "[yellow]"
+			case LevelSuccess:
+				tuiColor = "[green]"
+			case LevelProgress:
+				tuiColor = "[cyan]"
+			case LevelInfo:
+				tuiColor = "[blue]"
+			default:
+				tuiColor = "[white]"
+			}
+			l.outputFunc(fmt.Sprintf("%s%s[-:-:-]\n", tuiColor, logLine))
+			return
+		}
+
+		// Standard console output
 		if l.useColors {
 			if level == LevelError || level == LevelWarn {
 				fmt.Fprintf(os.Stderr, "%s%s%s\n", color, logLine, ColorReset)
@@ -181,6 +222,25 @@ func CloseDefaultLogger() {
 	if defaultLogger != nil {
 		defaultLogger.Close()
 	}
+}
+
+// SetLogOutputFunc sets a custom output function for the default logger (for TUI mode)
+func SetLogOutputFunc(fn OutputFunc) {
+	if defaultLogger != nil {
+		defaultLogger.SetOutputFunc(fn)
+	}
+}
+
+// ClearLogOutputFunc clears the custom output function for the default logger
+func ClearLogOutputFunc() {
+	if defaultLogger != nil {
+		defaultLogger.ClearOutputFunc()
+	}
+}
+
+// GetDefaultLogger returns the default logger instance
+func GetDefaultLogger() *Logger {
+	return defaultLogger
 }
 
 // Convenience functions using default logger

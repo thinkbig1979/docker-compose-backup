@@ -2,6 +2,7 @@ package backup
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,8 +22,9 @@ type Service struct {
 	dirlist *dirlist.Manager
 	pidFile *util.PIDFile
 
-	dryRun  bool
-	verbose bool
+	dryRun       bool
+	verbose      bool
+	outputWriter io.Writer // Custom output writer for command output
 
 	currentDir       string
 	backupInProgress bool
@@ -43,15 +45,40 @@ type BackupStats struct {
 	SkippedDirs []string
 }
 
+// DryRunAction represents an action that would be taken during a dry run
+type DryRunAction struct {
+	Directory string
+	Action    string
+	Details   string
+}
+
+// DryRunPlan holds all actions that would be taken during a dry run
+type DryRunPlan struct {
+	Actions []DryRunAction
+}
+
 // NewService creates a new backup service
 func NewService(cfg *config.Config, dryRun, verbose bool) *Service {
 	return &Service{
 		config:  cfg,
-		docker:  NewDockerManager(cfg.Docker.Timeout, dryRun),
-		restic:  NewResticManager(&cfg.LocalBackup, dryRun),
+		docker:  NewDockerManager(cfg.Docker.Timeout, dryRun, nil),
+		restic:  NewResticManager(&cfg.LocalBackup, dryRun, nil),
 		dirlist: dirlist.NewManager(cfg.DirlistFile, cfg.LockDir, cfg.Docker.StacksDir),
 		dryRun:  dryRun,
 		verbose: verbose,
+	}
+}
+
+// NewServiceWithOutput creates a new backup service with a custom output writer
+func NewServiceWithOutput(cfg *config.Config, dryRun, verbose bool, outputWriter io.Writer) *Service {
+	return &Service{
+		config:       cfg,
+		docker:       NewDockerManager(cfg.Docker.Timeout, dryRun, outputWriter),
+		restic:       NewResticManager(&cfg.LocalBackup, dryRun, outputWriter),
+		dirlist:      dirlist.NewManager(cfg.DirlistFile, cfg.LockDir, cfg.Docker.StacksDir),
+		dryRun:       dryRun,
+		verbose:      verbose,
+		outputWriter: outputWriter,
 	}
 }
 

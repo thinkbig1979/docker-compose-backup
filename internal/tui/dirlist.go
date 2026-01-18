@@ -105,9 +105,7 @@ func (a *App) createDirlistScreen() *tview.Flex {
 	instructions := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter).
-		SetText("[white]Navigate: [yellow]↑/↓[white]  Toggle: [yellow]ENTER[white]  " +
-			"Save: [yellow]S[white]  Cancel: [yellow]ESC[white]  " +
-			"All On: [yellow]A[white]  All Off: [yellow]N[-:-:-]")
+		SetText("[white]↑/↓: Navigate  ENTER: Toggle  S: Save  A: All On  N: All Off  ESC: Back  Q: Quit[-:-:-]")
 
 	// Legend
 	legend := tview.NewTextView().
@@ -140,6 +138,10 @@ func (a *App) createDirlistScreen() *tview.Flex {
 			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
+			case 'q', 'Q':
+				// Quit
+				a.app.Stop()
+				return nil
 			case 's', 'S':
 				// Save changes
 				a.saveDirlistChanges(selections)

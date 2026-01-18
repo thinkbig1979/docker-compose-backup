@@ -3,6 +3,7 @@ package backup
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"time"
@@ -15,6 +16,7 @@ import (
 type ResticManager struct {
 	config       *config.LocalBackupConfig
 	dryRun       bool
+	outputWriter io.Writer
 	cleanupFuncs []func()
 }
 
@@ -29,10 +31,11 @@ type Snapshot struct {
 }
 
 // NewResticManager creates a new restic manager
-func NewResticManager(cfg *config.LocalBackupConfig, dryRun bool) *ResticManager {
+func NewResticManager(cfg *config.LocalBackupConfig, dryRun bool, outputWriter io.Writer) *ResticManager {
 	return &ResticManager{
-		config: cfg,
-		dryRun: dryRun,
+		config:       cfg,
+		dryRun:       dryRun,
+		outputWriter: outputWriter,
 	}
 }
 
@@ -125,9 +128,10 @@ func (r *ResticManager) Backup(dirPath, dirName string, hostname string) error {
 	args = append(args, dirPath)
 
 	opts := util.CommandOptions{
-		Timeout:   time.Duration(r.config.Timeout) * time.Second,
-		StreamOut: true,
-		StreamErr: true,
+		Timeout:      time.Duration(r.config.Timeout) * time.Second,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: r.outputWriter,
 	}
 
 	result, err := util.RunCommand("restic", args, opts)
@@ -232,9 +236,10 @@ func (r *ResticManager) ApplyRetention(dirName string, hostname string) error {
 	args = append(args, "--prune")
 
 	opts := util.CommandOptions{
-		Timeout:   time.Duration(r.config.Timeout) * time.Second,
-		StreamOut: true,
-		StreamErr: true,
+		Timeout:      time.Duration(r.config.Timeout) * time.Second,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: r.outputWriter,
 	}
 
 	result, err := util.RunCommand("restic", args, opts)

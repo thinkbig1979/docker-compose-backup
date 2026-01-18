@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,9 +14,10 @@ import (
 
 // RestoreService handles cloud restore operations
 type RestoreService struct {
-	config *config.CloudSyncConfig
-	dryRun bool
-	force  bool
+	config       *config.CloudSyncConfig
+	dryRun       bool
+	force        bool
+	outputWriter io.Writer
 }
 
 // NewRestoreService creates a new restore service
@@ -24,6 +26,16 @@ func NewRestoreService(cfg *config.CloudSyncConfig, dryRun, force bool) *Restore
 		config: cfg,
 		dryRun: dryRun,
 		force:  force,
+	}
+}
+
+// NewRestoreServiceWithOutput creates a new restore service with a custom output writer
+func NewRestoreServiceWithOutput(cfg *config.CloudSyncConfig, dryRun, force bool, outputWriter io.Writer) *RestoreService {
+	return &RestoreService{
+		config:       cfg,
+		dryRun:       dryRun,
+		force:        force,
+		outputWriter: outputWriter,
 	}
 }
 
@@ -102,9 +114,10 @@ func (r *RestoreService) dryRunRestore(source, targetDir string) error {
 	}
 
 	opts := util.CommandOptions{
-		Timeout:   10 * time.Minute,
-		StreamOut: true,
-		StreamErr: true,
+		Timeout:      10 * time.Minute,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: r.outputWriter,
 	}
 
 	result, err := util.RunCommand("rclone", args, opts)
@@ -167,9 +180,10 @@ func (r *RestoreService) doRestore(source, targetDir string) error {
 	args = append(args, source, targetDir)
 
 	opts := util.CommandOptions{
-		Timeout:   4 * time.Hour, // Long timeout for large restores
-		StreamOut: true,
-		StreamErr: true,
+		Timeout:      4 * time.Hour, // Long timeout for large restores
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: r.outputWriter,
 	}
 
 	result, err := util.RunCommand("rclone", args, opts)
