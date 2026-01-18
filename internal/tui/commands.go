@@ -248,7 +248,7 @@ func (m Model) runRestore() (tea.Model, tea.Cmd) {
 
 func (m Model) runRestorePreview() (tea.Model, tea.Cmd) {
 	m.resetOutput("Restore Preview", "Running restore dry run...\n\nThis shows what would be downloaded without making changes.\n\n")
-	return m, m.executeRestore("/tmp/restore-preview", true)
+	return m, m.executeDryRunRestore()
 }
 
 // executeRestore runs the restore operation using tea.ExecProcess
@@ -259,6 +259,18 @@ func (m Model) executeRestore(path string, dryRun bool) tea.Cmd {
 			return CommandDoneMsg{Operation: "restore", Err: err}
 		},
 	)
+}
+
+// executeDryRunRestore runs restore dry run and captures output for the viewport
+func (m Model) executeDryRunRestore() tea.Cmd {
+	return func() tea.Msg {
+		cmd := m.buildRestoreCommand("/tmp/restore-preview", true)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return CommandOutputMsg{Output: string(output) + "\n" + ErrorStyle.Render(fmt.Sprintf("Error: %v", err)) + "\n\nPress ESC to go back"}
+		}
+		return CommandOutputMsg{Output: string(output) + "\n" + SuccessStyle.Render("Dry run completed!") + "\n\nPress ESC to go back"}
+	}
 }
 
 // buildRestoreCommand builds the command to run restore
