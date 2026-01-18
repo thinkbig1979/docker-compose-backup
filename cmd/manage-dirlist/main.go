@@ -549,42 +549,91 @@ func (app *App) runTUI() int {
 		selections[dir] = enabled
 	}
 
-	// Create checklist
-	list := tview.NewList()
-	list.SetBorder(true)
-	list.SetTitle(" Backup Directory Management ")
-	list.SetTitleAlign(tview.AlignCenter)
-
-	// Add header text
-	headerText := tview.NewTextView()
-	headerText.SetText("Select directories to include in backup:\nUse ENTER to toggle, TAB for buttons, ESC to cancel")
-	headerText.SetTextAlign(tview.AlignCenter)
-
-	// Add directories to list
-	for _, dir := range sortedDirs {
-		dirName := dir // capture for closure
-		status := "[ ]"
-		if selections[dirName] {
-			status = "[X]"
+	// Helper to format status with color
+	formatStatus := func(enabled bool) string {
+		if enabled {
+			return "[green::b]  ✓ BACKUP  [-:-:-]"
 		}
-		list.AddItem(fmt.Sprintf("%s %s", status, dirName), "Docker compose directory", 0, func() {
-			// Toggle selection
-			selections[dirName] = !selections[dirName]
-			// Update display
-			newStatus := "[ ]"
-			if selections[dirName] {
-				newStatus = "[X]"
-			}
-			idx := list.GetCurrentItem()
-			list.SetItemText(idx, fmt.Sprintf("%s %s", newStatus, dirName), "Docker compose directory")
-		})
+		return "[red::b]  ✗ SKIP    [-:-:-]"
 	}
 
-	// Create buttons
-	okButton := tview.NewButton("OK")
-	cancelButton := tview.NewButton("Cancel")
+	// Create table for better formatting
+	table := tview.NewTable()
+	table.SetBorders(false)
+	table.SetSelectable(true, false)
+	table.SetSelectedStyle(tcell.StyleDefault.
+		Background(tcell.ColorDarkCyan).
+		Foreground(tcell.ColorWhite).
+		Bold(true))
 
-	var exitCode int = ExitUserCancel
+	// Header row
+	table.SetCell(0, 0, tview.NewTableCell(" STATUS ").
+		SetTextColor(tcell.ColorYellow).
+		SetAlign(tview.AlignCenter).
+		SetSelectable(false).
+		SetAttributes(tcell.AttrBold))
+	table.SetCell(0, 1, tview.NewTableCell(" DIRECTORY ").
+		SetTextColor(tcell.ColorYellow).
+		SetAlign(tview.AlignLeft).
+		SetSelectable(false).
+		SetAttributes(tcell.AttrBold))
+
+	// Update table rows
+	updateTable := func() {
+		for i, dir := range sortedDirs {
+			row := i + 1 // Skip header row
+			statusCell := tview.NewTableCell(formatStatus(selections[dir])).
+				SetAlign(tview.AlignCenter).
+				SetExpansion(0)
+			dirCell := tview.NewTableCell("  " + dir).
+				SetTextColor(tcell.ColorWhite).
+				SetAlign(tview.AlignLeft).
+				SetExpansion(1)
+			table.SetCell(row, 0, statusCell)
+			table.SetCell(row, 1, dirCell)
+		}
+	}
+	updateTable()
+
+	// Handle selection toggle
+	table.SetSelectedFunc(func(row, col int) {
+		if row == 0 {
+			return // Skip header
+		}
+		dirIndex := row - 1
+		if dirIndex >= 0 && dirIndex < len(sortedDirs) {
+			dir := sortedDirs[dirIndex]
+			selections[dir] = !selections[dir]
+			updateTable()
+		}
+	})
+
+	// Start selection at first data row
+	table.Select(1, 0)
+
+	// Frame for table with title
+	tableFrame := tview.NewFrame(table).
+		SetBorders(1, 1, 1, 1, 1, 1).
+		AddText(" Backup Directory Management ", true, tview.AlignCenter, tcell.ColorYellow)
+
+	// Instructions
+	instructions := tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignCenter).
+		SetText("[white]Navigate: [yellow]↑/↓[white]  Toggle: [yellow]ENTER[white]  Buttons: [yellow]TAB[white]  Cancel: [yellow]ESC[white]")
+
+	// Legend
+	legend := tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignCenter).
+		SetText("[green]✓ BACKUP[white] = Directory will be backed up    [red]✗ SKIP[white] = Directory will be skipped")
+
+	// Create buttons with better styling
+	okButton := tview.NewButton(" Save ").
+		SetStyle(tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack))
+	cancelButton := tview.NewButton(" Cancel ").
+		SetStyle(tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorWhite))
+
 	var confirmed bool
 
 	okButton.SetSelectedFunc(func() {
@@ -600,18 +649,19 @@ func (app *App) runTUI() int {
 	buttonFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 	buttonFlex.AddItem(nil, 0, 1, false)
 	buttonFlex.AddItem(okButton, 10, 0, false)
-	buttonFlex.AddItem(nil, 2, 0, false)
+	buttonFlex.AddItem(nil, 4, 0, false)
 	buttonFlex.AddItem(cancelButton, 10, 0, false)
 	buttonFlex.AddItem(nil, 0, 1, false)
 
 	// Main layout
 	mainFlex := tview.NewFlex().SetDirection(tview.FlexRow)
-	mainFlex.AddItem(headerText, 3, 0, false)
-	mainFlex.AddItem(list, 0, 1, true)
+	mainFlex.AddItem(instructions, 1, 0, false)
+	mainFlex.AddItem(legend, 1, 0, false)
+	mainFlex.AddItem(tableFrame, 0, 1, true)
 	mainFlex.AddItem(buttonFlex, 1, 0, false)
 
 	// Focus handling
-	focusables := []tview.Primitive{list, okButton, cancelButton}
+	focusables := []tview.Primitive{table, okButton, cancelButton}
 	focusIndex := 0
 
 	tuiApp.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -631,7 +681,7 @@ func (app *App) runTUI() int {
 		return event
 	})
 
-	if err := tuiApp.SetRoot(mainFlex, true).SetFocus(list).Run(); err != nil {
+	if err := tuiApp.SetRoot(mainFlex, true).SetFocus(table).Run(); err != nil {
 		printError("TUI error: %v", err)
 		return ExitDialogError
 	}
@@ -642,8 +692,7 @@ func (app *App) runTUI() int {
 	}
 
 	// Show confirmation
-	exitCode = app.showConfirmation(selections)
-	return exitCode
+	return app.showConfirmation(selections)
 }
 
 func (app *App) showConfirmation(selections map[string]bool) int {
@@ -672,44 +721,48 @@ func (app *App) showConfirmation(selections map[string]bool) int {
 	// Create confirmation TUI
 	tuiApp := tview.NewApplication()
 
-	// Build summary text
+	// Build summary text with colors
 	var summary strings.Builder
-	summary.WriteString("Directory Backup Settings Summary:\n\n")
-	summary.WriteString("ENABLED directories (will be backed up):\n")
+	summary.WriteString("[yellow::b]Directory Backup Settings Summary[white]\n\n")
+	summary.WriteString("[green::b]BACKUP[white] - directories that will be backed up:\n")
 	if len(enabledDirs) > 0 {
 		for _, dir := range enabledDirs {
-			summary.WriteString(fmt.Sprintf("  ✓ %s\n", dir))
+			summary.WriteString(fmt.Sprintf("  [green]✓[white] %s\n", dir))
 		}
 	} else {
-		summary.WriteString("  (none)\n")
+		summary.WriteString("  [gray](none)[white]\n")
 	}
-	summary.WriteString("\nDISABLED directories (will be skipped):\n")
+	summary.WriteString("\n[red::b]SKIP[white] - directories that will be skipped:\n")
 	if len(disabledDirs) > 0 {
 		for _, dir := range disabledDirs {
-			summary.WriteString(fmt.Sprintf("  ✗ %s\n", dir))
+			summary.WriteString(fmt.Sprintf("  [red]✗[white] %s\n", dir))
 		}
 	} else {
-		summary.WriteString("  (none)\n")
+		summary.WriteString("  [gray](none)[white]\n")
 	}
-	summary.WriteString(fmt.Sprintf("\nTotal: %d enabled, %d disabled\n", len(enabledDirs), len(disabledDirs)))
+	summary.WriteString(fmt.Sprintf("\n[yellow]Total:[white] %d backup, %d skip\n", len(enabledDirs), len(disabledDirs)))
 
 	if changesDetected {
-		summary.WriteString("\n⚠ Changes detected - dirlist file will be updated")
+		summary.WriteString("\n[yellow]⚠ Changes detected - dirlist file will be updated[white]")
 	} else {
-		summary.WriteString("\n✓ No changes made")
+		summary.WriteString("\n[green]✓ No changes from current settings[white]")
 	}
-	summary.WriteString("\n\nDo you want to save these settings?")
+	summary.WriteString("\n\n[white::b]Save these settings?[white]")
 
-	// Create text view
-	textView := tview.NewTextView()
-	textView.SetText(summary.String())
+	// Create text view with dynamic colors
+	textView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetText(summary.String())
 	textView.SetBorder(true)
 	textView.SetTitle(" Confirm Changes ")
 	textView.SetTitleAlign(tview.AlignCenter)
+	textView.SetBorderColor(tcell.ColorYellow)
 
-	// Buttons
-	yesButton := tview.NewButton("Yes")
-	noButton := tview.NewButton("No")
+	// Buttons with styling
+	yesButton := tview.NewButton(" Yes - Save ").
+		SetStyle(tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack))
+	noButton := tview.NewButton(" No - Cancel ").
+		SetStyle(tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorWhite))
 
 	var confirmed bool
 
@@ -724,9 +777,9 @@ func (app *App) showConfirmation(selections map[string]bool) int {
 
 	buttonFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 	buttonFlex.AddItem(nil, 0, 1, false)
-	buttonFlex.AddItem(yesButton, 10, 0, false)
-	buttonFlex.AddItem(nil, 2, 0, false)
-	buttonFlex.AddItem(noButton, 10, 0, false)
+	buttonFlex.AddItem(yesButton, 14, 0, false)
+	buttonFlex.AddItem(nil, 4, 0, false)
+	buttonFlex.AddItem(noButton, 14, 0, false)
 	buttonFlex.AddItem(nil, 0, 1, false)
 
 	mainFlex := tview.NewFlex().SetDirection(tview.FlexRow)
