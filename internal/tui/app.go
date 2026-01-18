@@ -189,6 +189,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case CommandOutputMsg:
 		m.outputContent.WriteString(msg.Output)
+		if m.outputReady {
+			m.outputViewport.SetContent(m.outputContent.String())
+			m.outputViewport.GotoBottom()
+		}
 		return m, nil
 
 	case CommandDoneMsg:
@@ -198,6 +202,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.outputContent.WriteString(fmt.Sprintf("\n%s\n", SuccessStyle.Render("Completed successfully!")))
 		}
 		m.outputContent.WriteString("\nPress ESC to go back")
+		if m.outputReady {
+			m.outputViewport.SetContent(m.outputContent.String())
+			m.outputViewport.GotoBottom()
+		}
 		return m, nil
 
 	case DirlistSavedMsg:

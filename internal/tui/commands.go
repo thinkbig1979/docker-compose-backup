@@ -45,7 +45,7 @@ func (m Model) runQuickBackup() (tea.Model, tea.Cmd) {
 
 func (m Model) runDryRunBackup() (tea.Model, tea.Cmd) {
 	m.resetOutput("Dry Run Backup", "Running backup dry run...\n\nThis shows what would be backed up without making changes.\n\n")
-	return m, m.executeBackup(true)
+	return m, m.executeDryRunBackup()
 }
 
 // executeBackup runs the backup operation using tea.ExecProcess for real-time output
@@ -56,6 +56,18 @@ func (m Model) executeBackup(dryRun bool) tea.Cmd {
 			return CommandDoneMsg{Operation: "backup", Err: err}
 		},
 	)
+}
+
+// executeDryRunBackup runs backup dry run and captures output for the viewport
+func (m Model) executeDryRunBackup() tea.Cmd {
+	return func() tea.Msg {
+		cmd := m.buildBackupCommand(true)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return CommandOutputMsg{Output: string(output) + "\n" + ErrorStyle.Render(fmt.Sprintf("Error: %v", err)) + "\n\nPress ESC to go back"}
+		}
+		return CommandOutputMsg{Output: string(output) + "\n" + SuccessStyle.Render("Dry run completed!") + "\n\nPress ESC to go back"}
+	}
 }
 
 // buildBackupCommand builds the command to run backup
@@ -136,7 +148,7 @@ func (m Model) runQuickSync() (tea.Model, tea.Cmd) {
 
 func (m Model) runDryRunSync() (tea.Model, tea.Cmd) {
 	m.resetOutput("Cloud Sync Dry Run", "Running sync dry run...\n\nThis shows what would be synced without uploading.\n\n")
-	return m, m.executeSync(true)
+	return m, m.executeDryRunSync()
 }
 
 // executeSync runs the sync operation using tea.ExecProcess for real-time output
@@ -147,6 +159,18 @@ func (m Model) executeSync(dryRun bool) tea.Cmd {
 			return CommandDoneMsg{Operation: "sync", Err: err}
 		},
 	)
+}
+
+// executeDryRunSync runs sync dry run and captures output for the viewport
+func (m Model) executeDryRunSync() tea.Cmd {
+	return func() tea.Msg {
+		cmd := m.buildSyncCommand(true)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return CommandOutputMsg{Output: string(output) + "\n" + ErrorStyle.Render(fmt.Sprintf("Error: %v", err)) + "\n\nPress ESC to go back"}
+		}
+		return CommandOutputMsg{Output: string(output) + "\n" + SuccessStyle.Render("Dry run completed!") + "\n\nPress ESC to go back"}
+	}
 }
 
 // buildSyncCommand builds the command to run sync
