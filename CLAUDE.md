@@ -8,9 +8,19 @@ A Docker Stack 3-Stage Backup System with:
 
 ## Development Tools
 - **Go LSP**: Available for code navigation (goToDefinition, findReferences, hover, etc.)
-- **tview**: TUI library for interactive interface
+- **golangci-lint**: Linter for Go code - **always run after making changes**
+- **Bubbletea**: TUI library for interactive interface (migrated from tview)
+- **Bubbles**: Pre-built TUI components (list, viewport, etc.)
+- **Lipgloss**: Terminal styling library
 - **restic**: Backup tool for local snapshots
 - **rclone**: Cloud sync tool for remote storage
+
+## Development Workflow
+1. Make code changes
+2. Run linter: `golangci-lint run ./...`
+3. Fix any linting errors before committing
+4. Build: `go build -o bin/backup-tui ./cmd/backup-tui`
+5. Commit binaries along with source changes
 
 ## Project Structure
 ```
@@ -80,16 +90,24 @@ backup-tui-go validate           # Validate config
 1. ✅ Foundation: go.mod, config parser, utilities
 2. ✅ Backup Service: docker ops, restic commands
 3. ✅ Cloud Operations: rclone sync/restore
-4. ✅ TUI: tview screens, menu navigation
+4. ✅ TUI: Bubbletea screens, menu navigation (migrated from tview)
 5. ✅ CLI & Integration: flag parsing, headless commands
+6. ✅ TUI Migration: Completed migration from tview to Bubbletea
 
 ## Key Decisions
 | Decision | Choice |
 |----------|--------|
-| TUI library | tview (already used) |
+| TUI library | Bubbletea (migrated from tview for better output streaming) |
 | Config format | INI-style with sections |
 | Source dir var | `DOCKER_STACKS_DIR` (was `BACKUP_DIR`) |
 | Existing binaries | Deprecate after migration |
+
+## TUI Architecture (Bubbletea)
+- **Elm Architecture**: Model-Update-View pattern for state management
+- **Message Passing**: Async operations return messages, no threading issues
+- **tea.ExecProcess**: Yields terminal for subprocess output (rclone/restic)
+- **Viewport Component**: Scrollable output view with page up/down support
+- **Lipgloss Styling**: Consistent colors and formatting across screens
 
 ## Code Patterns
 - Use `context.WithTimeout` for all external commands

@@ -34,11 +34,12 @@ const (
 func main() {
 	// Global flags
 	var (
-		verbose    bool
-		dryRun     bool
-		configPath string
-		showHelp   bool
-		showVer    bool
+		verbose      bool
+		dryRun       bool
+		configPath   string
+		showHelp     bool
+		showVer      bool
+		useBubbletea bool
 	)
 
 	flag.BoolVar(&verbose, "v", false, "Enable verbose output")
@@ -50,6 +51,7 @@ func main() {
 	flag.BoolVar(&showHelp, "h", false, "Show help")
 	flag.BoolVar(&showHelp, "help", false, "Show help")
 	flag.BoolVar(&showVer, "version", false, "Show version")
+	flag.BoolVar(&useBubbletea, "bubbletea", false, "Use new Bubbletea TUI (experimental)")
 
 	flag.Parse()
 
@@ -109,7 +111,7 @@ func main() {
 	switch command {
 	case "":
 		// No command - run TUI
-		runTUI(cfg)
+		runTUI(cfg, useBubbletea)
 
 	case "backup":
 		runBackup(cfg, dryRun, verbose)
@@ -184,9 +186,9 @@ CONFIGURATION:
 `, Name, Version, Name, Name, Name, Name, Name, Name, Name, Name)
 }
 
-func runTUI(cfg *config.Config) {
-	app := tui.NewApp(cfg)
-	if err := app.Run(); err != nil {
+func runTUI(cfg *config.Config, _ bool) {
+	// Use Bubbletea-based TUI
+	if err := tui.Run(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(ExitConfigError)
 	}
@@ -206,7 +208,7 @@ func runBackup(cfg *config.Config, dryRun, verbose bool) {
 	}
 }
 
-func runSync(cfg *config.Config, dryRun, verbose bool) {
+func runSync(cfg *config.Config, dryRun, _ bool) {
 	// Validate config for cloud sync
 	if err := cfg.ValidateForCloudSync(); err != nil {
 		util.PrintError("Configuration error: %v", err)
@@ -242,7 +244,7 @@ func runSync(cfg *config.Config, dryRun, verbose bool) {
 	util.PrintSuccess("Sync completed successfully")
 }
 
-func runRestore(cfg *config.Config, restorePath string, dryRun, verbose bool) {
+func runRestore(cfg *config.Config, restorePath string, dryRun, _ bool) {
 	// Validate config for cloud sync
 	if err := cfg.ValidateForCloudSync(); err != nil {
 		util.PrintError("Configuration error: %v", err)
@@ -326,7 +328,7 @@ func listBackups(cfg *config.Config) {
 
 func runHealthCheck(cfg *config.Config) {
 	svc := backup.NewService(cfg, true, false)
-	svc.HealthCheck()
+	_ = svc.HealthCheck() // Error intentionally ignored - health check prints its own output
 }
 
 func generateConfigTemplate() {
@@ -397,9 +399,12 @@ RETRIES=3
 	outputPath := filepath.Join(cwd, "config", "config.ini.template")
 
 	// Create directory if needed
-	os.MkdirAll(filepath.Dir(outputPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating directory: %v\n", err)
+		os.Exit(ExitConfigError)
+	}
 
-	if err := os.WriteFile(outputPath, []byte(template), 0644); err != nil {
+	if err := os.WriteFile(outputPath, []byte(template), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating template: %v\n", err)
 		os.Exit(ExitConfigError)
 	}

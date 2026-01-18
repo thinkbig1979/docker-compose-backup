@@ -206,7 +206,9 @@ func (s *Service) processBackups() error {
 	util.LogProgress("Checking initial state of Docker stacks")
 	for _, dirName := range enabledDirs {
 		dirPath := filepath.Join(s.config.Docker.StacksDir, dirName)
-		s.docker.StoreInitialState(dirName, dirPath)
+		if err := s.docker.StoreInitialState(dirName, dirPath); err != nil {
+			util.LogWarn("Failed to get initial state for %s: %v", dirName, err)
+		}
 		state := s.docker.GetStoredState(dirName)
 		util.LogProgress("Stack %s: initially %s", dirName, state)
 	}
@@ -255,7 +257,9 @@ func (s *Service) processDirectory(dirName string) error {
 	// Backup
 	if err := s.restic.Backup(dirPath, dirName, s.config.LocalBackup.Hostname); err != nil {
 		// Try to restart even on failure
-		s.docker.SmartStart(dirName, dirPath)
+		if restartErr := s.docker.SmartStart(dirName, dirPath); restartErr != nil {
+			util.LogError("Failed to restart stack after backup failure: %v", restartErr)
+		}
 		return err
 	}
 
@@ -422,9 +426,12 @@ func (s *Service) HealthCheck() error {
 
 	// Count directories
 	if s.dirlist != nil {
-		s.dirlist.Load()
-		total, enabled, _ := s.dirlist.Count()
-		fmt.Printf("Directories: %d total, %d enabled\n", total, enabled)
+		if err := s.dirlist.Load(); err != nil {
+			fmt.Printf("%sDirectories: ERROR loading dirlist: %v%s\n", util.ColorRed, err, util.ColorReset)
+		} else {
+			total, enabled, _ := s.dirlist.Count()
+			fmt.Printf("Directories: %d total, %d enabled\n", total, enabled)
+		}
 	}
 
 	fmt.Println()

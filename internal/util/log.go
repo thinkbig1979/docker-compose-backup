@@ -35,13 +35,13 @@ type OutputFunc func(text string)
 
 // Logger provides structured logging with file and console output
 type Logger struct {
-	mu           sync.Mutex
-	file         *os.File
-	filePath     string
-	verbose      bool
-	useColors    bool
-	consoleOnly  bool
-	outputFunc   OutputFunc // Custom output function (for TUI mode)
+	mu          sync.Mutex
+	file        *os.File
+	filePath    string
+	verbose     bool
+	useColors   bool
+	consoleOnly bool
+	outputFunc  OutputFunc // Custom output function (for TUI mode)
 }
 
 // NewLogger creates a new logger
@@ -55,12 +55,12 @@ func NewLogger(logPath string, verbose bool) (*Logger, error) {
 	if logPath != "" {
 		// Create log directory if needed
 		logDir := filepath.Dir(logPath)
-		if err := os.MkdirAll(logDir, 0755); err != nil {
+		if err := os.MkdirAll(logDir, 0o755); err != nil {
 			return nil, fmt.Errorf("cannot create log directory: %w", err)
 		}
 
 		// Open log file
-		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return nil, fmt.Errorf("cannot open log file: %w", err)
 		}

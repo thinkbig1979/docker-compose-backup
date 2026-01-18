@@ -98,7 +98,7 @@ func (m *Manager) Save() error {
 	fmt.Fprintln(tmpFile)
 
 	// Sort directories for consistent output
-	var dirs []string
+	dirs := make([]string, 0, len(m.entries))
 	for dir := range m.entries {
 		dirs = append(dirs, dir)
 	}
@@ -120,14 +120,16 @@ func (m *Manager) Save() error {
 	}
 
 	// Set permissions
-	os.Chmod(m.filePath, 0600)
+	if err := os.Chmod(m.filePath, 0o600); err != nil {
+		return fmt.Errorf("cannot set dirlist permissions: %w", err)
+	}
 
 	return nil
 }
 
 // Sync synchronizes the dirlist with discovered directories
 // Returns (added, removed, error)
-func (m *Manager) Sync() ([]string, []string, error) {
+func (m *Manager) Sync() (added, removed []string, err error) {
 	// Discover current directories
 	discovered, err := DiscoverDirectories(m.baseDir)
 	if err != nil {
@@ -141,7 +143,6 @@ func (m *Manager) Sync() ([]string, []string, error) {
 	}
 
 	// Find removed directories (in entries but not discovered)
-	var removed []string
 	for dir := range m.entries {
 		if !discoveredSet[dir] {
 			removed = append(removed, dir)
@@ -149,7 +150,6 @@ func (m *Manager) Sync() ([]string, []string, error) {
 	}
 
 	// Find new directories (discovered but not in entries)
-	var added []string
 	for _, dir := range discovered {
 		if _, exists := m.entries[dir]; !exists {
 			added = append(added, dir)
@@ -171,8 +171,8 @@ func (m *Manager) Sync() ([]string, []string, error) {
 }
 
 // Get returns the enabled status for a directory
-func (m *Manager) Get(name string) (bool, bool) {
-	enabled, exists := m.entries[name]
+func (m *Manager) Get(name string) (enabled, exists bool) {
+	enabled, exists = m.entries[name]
 	return enabled, exists
 }
 
@@ -247,7 +247,7 @@ func (m *Manager) SetAll(enabled bool) {
 
 // SortedDirs returns all directory names sorted
 func (m *Manager) SortedDirs() []string {
-	var dirs []string
+	dirs := make([]string, 0, len(m.entries))
 	for dir := range m.entries {
 		dirs = append(dirs, dir)
 	}

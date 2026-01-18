@@ -56,9 +56,14 @@ func (r *ResticManager) SetupEnv() error {
 		if err != nil {
 			return fmt.Errorf("cannot create temp password file: %w", err)
 		}
-		tmpFile.WriteString(r.config.Password)
+		if _, err := tmpFile.WriteString(r.config.Password); err != nil {
+			tmpFile.Close()
+			return fmt.Errorf("cannot write to temp password file: %w", err)
+		}
 		tmpFile.Close()
-		os.Chmod(tmpFile.Name(), 0600)
+		if err := os.Chmod(tmpFile.Name(), 0o600); err != nil {
+			return fmt.Errorf("cannot set temp password file permissions: %w", err)
+		}
 		os.Setenv("RESTIC_PASSWORD_FILE", tmpFile.Name())
 
 		// Schedule cleanup
@@ -102,7 +107,7 @@ func (r *ResticManager) CheckRepository() error {
 }
 
 // Backup performs a backup of the specified directory
-func (r *ResticManager) Backup(dirPath, dirName string, hostname string) error {
+func (r *ResticManager) Backup(dirPath, dirName, hostname string) error {
 	util.LogProgress("Backing up directory: %s", dirName)
 
 	if r.dryRun {
@@ -124,8 +129,7 @@ func (r *ResticManager) Backup(dirPath, dirName string, hostname string) error {
 	}
 
 	// Performance options
-	args = append(args, "--one-file-system", "--exclude-caches")
-	args = append(args, dirPath)
+	args = append(args, "--one-file-system", "--exclude-caches", dirPath)
 
 	opts := util.CommandOptions{
 		Timeout:      time.Duration(r.config.Timeout) * time.Second,
@@ -192,7 +196,7 @@ func (r *ResticManager) Verify(dirName string) error {
 }
 
 // ApplyRetention applies the retention policy
-func (r *ResticManager) ApplyRetention(dirName string, hostname string) error {
+func (r *ResticManager) ApplyRetention(dirName, hostname string) error {
 	if !r.config.AutoPrune {
 		return nil
 	}

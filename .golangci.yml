@@ -1,0 +1,74 @@
+# golangci-lint configuration
+# Run: golangci-lint run
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Defaults
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Examine Go source code
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Static analysis
+    - unused        # Check for unused code
+    
+    # Additional recommended
+    - bodyclose     # Check HTTP response body is closed
+    - dupl          # Code clone detection
+    - gocognit      # Cognitive complexity
+    - goconst       # Find repeated strings that could be constants
+    - gocritic      # Opinionated linter
+    - gofmt         # Check code is formatted
+    - goimports     # Check imports are sorted
+    - gosec         # Security checker
+    - misspell      # Spelling mistakes
+    - nakedret      # Naked returns in long functions
+    - prealloc      # Preallocate slices
+    - unconvert     # Remove unnecessary type conversions
+    - unparam       # Report unused function parameters
+
+linters-settings:
+  gocognit:
+    min-complexity: 20
+  
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - whyNoLint
+      - hugeParam  # Too strict for our structs
+  
+  gosec:
+    excludes:
+      - G104  # Unhandled errors (errcheck handles this)
+      - G304  # File path from variable (we need this for backup paths)
+  
+  dupl:
+    threshold: 150
+  
+  nakedret:
+    max-func-lines: 30
+
+issues:
+  exclude-rules:
+    # Ignore long lines in generated code
+    - path: _test\.go
+      linters:
+        - dupl
+        - gocognit
+    
+    # Allow fmt.Print in main and TUI
+    - path: cmd/
+      linters:
+        - forbidigo
+    - path: internal/tui/
+      linters:
+        - forbidigo
+  
+  max-issues-per-linter: 50
+  max-same-issues: 10

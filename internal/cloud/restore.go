@@ -83,7 +83,7 @@ func (r *RestoreService) prepareDirectory(targetDir string) error {
 		}
 	} else if os.IsNotExist(err) {
 		// Create directory
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
 			return fmt.Errorf("cannot create target directory: %w", err)
 		}
 		util.LogInfo("Created target directory: %s", targetDir)
@@ -93,7 +93,7 @@ func (r *RestoreService) prepareDirectory(targetDir string) error {
 
 	// Check if writable
 	testFile := filepath.Join(targetDir, ".write-test")
-	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test"), 0o600); err != nil {
 		return fmt.Errorf("target directory not writable: %s", targetDir)
 	}
 	os.Remove(testFile)
@@ -246,7 +246,7 @@ func (r *RestoreService) Verify(targetDir string) error {
 
 	// Calculate total size
 	var totalSize int64
-	filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}

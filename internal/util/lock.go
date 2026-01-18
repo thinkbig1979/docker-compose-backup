@@ -20,7 +20,7 @@ type FileLock struct {
 // NewFileLock creates a new file lock
 func NewFileLock(lockDir, name string) (*FileLock, error) {
 	// Create lock directory if needed
-	if err := os.MkdirAll(lockDir, 0755); err != nil {
+	if err := os.MkdirAll(lockDir, 0o755); err != nil {
 		return nil, fmt.Errorf("cannot create lock directory: %w", err)
 	}
 
@@ -35,7 +35,7 @@ func (l *FileLock) Acquire(timeout time.Duration) error {
 	}
 
 	// Open or create lock file
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return fmt.Errorf("cannot open lock file: %w", err)
 	}
@@ -65,7 +65,7 @@ func (l *FileLock) TryAcquire() (bool, error) {
 		return true, nil
 	}
 
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return false, fmt.Errorf("cannot open lock file: %w", err)
 	}
@@ -87,7 +87,7 @@ func (l *FileLock) Release() {
 		return
 	}
 
-	syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
+	_ = syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
 	l.file.Close()
 	l.file = nil
 	l.locked = false
@@ -105,7 +105,7 @@ type PIDFile struct {
 
 // NewPIDFile creates a new PID file manager
 func NewPIDFile(dir, name string) (*PIDFile, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("cannot create PID directory: %w", err)
 	}
 
@@ -133,7 +133,7 @@ func (p *PIDFile) Acquire() error {
 
 	// Write current PID
 	pid := os.Getpid()
-	if err := os.WriteFile(p.path, []byte(strconv.Itoa(pid)), 0644); err != nil {
+	if err := os.WriteFile(p.path, []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		return fmt.Errorf("cannot create PID file: %w", err)
 	}
 

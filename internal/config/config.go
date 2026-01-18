@@ -245,13 +245,9 @@ func (c *Config) applyLegacyValue(key, value string) {
 	case "RESTIC_PASSWORD_COMMAND":
 		c.LocalBackup.PasswordCommand = value
 	case "ENABLE_PASSWORD_FILE":
-		if parseBool(value) && c.LocalBackup.PasswordFile == "" {
-			// Flag set but no file specified yet
-		}
+		// Legacy flag - password file path is set via RESTIC_PASSWORD_FILE
 	case "ENABLE_PASSWORD_COMMAND":
-		if parseBool(value) && c.LocalBackup.PasswordCommand == "" {
-			// Flag set but no command specified yet
-		}
+		// Legacy flag - password command is set via RESTIC_PASSWORD_COMMAND
 	case "BACKUP_TIMEOUT":
 		c.LocalBackup.Timeout = parseInt(value, c.LocalBackup.Timeout)
 	case "HOSTNAME":
