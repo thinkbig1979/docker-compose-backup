@@ -156,38 +156,20 @@ func (a *App) createMainMenu() *tview.Flex {
 		SetTextAlign(tview.AlignCenter).
 		SetText("[yellow::b]Backup TUI - Docker Stack Backup System[-:-:-]")
 
-	// Menu items
+	// Menu items - callbacks are nil because SetSelectedFunc handles all selection
 	a.mainMenu = tview.NewList()
 	menu := a.mainMenu.
-		AddItem("1. Backup (Stage 1: Local)", "Run local backup with restic", '1', func() {
-			a.showPage("backup")
-		}).
-		AddItem("2. Cloud Sync (Stage 2: Upload)", "Sync to cloud storage", '2', func() {
-			a.showPage("sync")
-		}).
-		AddItem("3. Cloud Restore (Stage 3: Download)", "Restore from cloud", '3', func() {
-			a.showPage("restore")
-		}).
-		AddItem("4. Directory Management", "Select directories to backup", '4', func() {
-			a.showPage("dirlist")
-		}).
-		AddItem("5. Status & Logs", "View system status", '5', func() {
-			a.showPage("status")
-		}).
+		AddItem("1. Backup (Stage 1: Local)", "Run local backup with restic", '1', nil).
+		AddItem("2. Cloud Sync (Stage 2: Upload)", "Sync to cloud storage", '2', nil).
+		AddItem("3. Cloud Restore (Stage 3: Download)", "Restore from cloud", '3', nil).
+		AddItem("4. Directory Management", "Select directories to backup", '4', nil).
+		AddItem("5. Status & Logs", "View system status", '5', nil).
 		AddItem("", "", '-', nil).
-		AddItem("B. Quick Backup", "Run backup now", 'b', func() {
-			a.runQuickBackup()
-		}).
-		AddItem("D. Dry Run", "Preview backup without changes", 'd', func() {
-			a.runDryRunBackup()
-		}).
-		AddItem("S. Quick Status", "Show quick status", 's', func() {
-			a.showQuickStatus()
-		}).
+		AddItem("B. Quick Backup", "Run backup now", 'b', nil).
+		AddItem("D. Dry Run", "Preview backup without changes", 'd', nil).
+		AddItem("S. Quick Status", "Show quick status", 's', nil).
 		AddItem("", "", '-', nil).
-		AddItem("Q. Quit", "Exit the application", 'q', func() {
-			a.app.Stop()
-		})
+		AddItem("Q. Quit", "Exit the application", 'q', nil)
 
 	menu.SetBorder(true).SetTitle(" Main Menu ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -236,22 +218,12 @@ func (a *App) createBackupMenu() *tview.Flex {
 
 	a.backupMenu = tview.NewList()
 	menu := a.backupMenu.
-		AddItem("Quick Backup", "Run backup with default settings", 'q', func() {
-			a.runQuickBackup()
-		}).
-		AddItem("Dry Run", "Preview what would be backed up", 'd', func() {
-			a.runDryRunBackup()
-		}).
-		AddItem("List Snapshots", "Show recent backup snapshots", 'l', func() {
-			a.showSnapshots()
-		}).
-		AddItem("Verify Repository", "Verify the restic repository", 'v', func() {
-			a.verifyRepository()
-		}).
+		AddItem("Quick Backup", "Run backup with default settings", 'q', nil).
+		AddItem("Dry Run", "Preview what would be backed up", 'd', nil).
+		AddItem("List Snapshots", "Show recent backup snapshots", 'l', nil).
+		AddItem("Verify Repository", "Verify the restic repository", 'v', nil).
 		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', func() {
-			a.showPage("main")
-		})
+		AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
 
 	menu.SetBorder(true).SetTitle(" Backup Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -303,22 +275,12 @@ func (a *App) createSyncMenu() *tview.Flex {
 
 	a.syncMenu = tview.NewList()
 	menu := a.syncMenu.
-		AddItem("Quick Sync", "Sync to cloud with default settings", 'q', func() {
-			a.runQuickSync()
-		}).
-		AddItem("Dry Run", "Preview what would be synced", 'd', func() {
-			a.runDryRunSync()
-		}).
-		AddItem("Test Connectivity", "Test connection to cloud storage", 't', func() {
-			a.testSyncConnectivity()
-		}).
-		AddItem("Show Remote Size", "Show size of remote backup", 's', func() {
-			a.showRemoteSize()
-		}).
+		AddItem("Quick Sync", "Sync to cloud with default settings", 'q', nil).
+		AddItem("Dry Run", "Preview what would be synced", 'd', nil).
+		AddItem("Test Connectivity", "Test connection to cloud storage", 't', nil).
+		AddItem("Show Remote Size", "Show size of remote backup", 's', nil).
 		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', func() {
-			a.showPage("main")
-		})
+		AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
 
 	menu.SetBorder(true).SetTitle(" Sync Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -375,19 +337,11 @@ func (a *App) createRestoreMenu() *tview.Flex {
 
 	a.restoreMenu = tview.NewList()
 	menu := a.restoreMenu.
-		AddItem("Restore Repository", "Download backup from cloud", 'r', func() {
-			a.runRestore()
-		}).
-		AddItem("Restore Preview (Dry Run)", "Preview what would be restored", 'p', func() {
-			a.runRestorePreview()
-		}).
-		AddItem("Test Connectivity", "Test connection to cloud storage", 't', func() {
-			a.testRestoreConnectivity()
-		}).
+		AddItem("Restore Repository", "Download backup from cloud", 'r', nil).
+		AddItem("Restore Preview (Dry Run)", "Preview what would be restored", 'p', nil).
+		AddItem("Test Connectivity", "Test connection to cloud storage", 't', nil).
 		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', func() {
-			a.showPage("main")
-		})
+		AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
 
 	menu.SetBorder(true).SetTitle(" Restore Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -435,19 +389,11 @@ func (a *App) createStatusScreen() *tview.Flex {
 
 	a.statusMenu = tview.NewList()
 	menu := a.statusMenu.
-		AddItem("System Status", "Show system health status", 's', func() {
-			a.showSystemStatus()
-		}).
-		AddItem("View Logs", "View recent log entries", 'l', func() {
-			a.viewLogs()
-		}).
-		AddItem("Health Check", "Run health diagnostics", 'h', func() {
-			a.runHealthCheck()
-		}).
+		AddItem("System Status", "Show system health status", 's', nil).
+		AddItem("View Logs", "View recent log entries", 'l', nil).
+		AddItem("Health Check", "Run health diagnostics", 'h', nil).
 		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', func() {
-			a.showPage("main")
-		})
+		AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
 
 	menu.SetBorder(true).SetTitle(" Status Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
