@@ -159,6 +159,9 @@ func (a *App) createMainMenu() *tview.Flex {
 		AddItem("B. Quick Backup", "Run backup now", 'b', func() {
 			a.runQuickBackup()
 		}).
+		AddItem("D. Dry Run", "Preview backup without changes", 'd', func() {
+			a.runDryRunBackup()
+		}).
 		AddItem("S. Quick Status", "Show quick status", 's', func() {
 			a.showQuickStatus()
 		}).
@@ -240,43 +243,30 @@ func (a *App) createSyncMenu() *tview.Flex {
 		SetText("[yellow::b]Cloud Sync Menu - Stage 2: Upload[-:-:-]")
 
 	a.syncMenu = tview.NewList()
-	a.syncMenu.AddItem("Quick Sync", "Sync to cloud with default settings", 'q', nil)
-	a.syncMenu.AddItem("Dry Run", "Preview what would be synced", 'd', nil)
-	a.syncMenu.AddItem("Test Connectivity", "Test connection to cloud storage", 't', nil)
-	a.syncMenu.AddItem("Show Remote Size", "Show size of remote backup", 's', nil)
-	a.syncMenu.AddItem("", "", '-', nil)
-	a.syncMenu.AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
+	menu := a.syncMenu.
+		AddItem("Quick Sync", "Sync to cloud with default settings", 'q', func() {
+			a.runQuickSync()
+		}).
+		AddItem("Dry Run", "Preview what would be synced", 'd', func() {
+			a.runDryRunSync()
+		}).
+		AddItem("Test Connectivity", "Test connection to cloud storage", 't', func() {
+			a.testSyncConnectivity()
+		}).
+		AddItem("Show Remote Size", "Show size of remote backup", 's', func() {
+			a.showRemoteSize()
+		}).
+		AddItem("", "", '-', nil).
+		AddItem("Back to Main Menu", "Return to main menu", 'b', func() {
+			a.showPage("main")
+		})
 
-	menu := a.syncMenu
 	menu.SetBorder(true).SetTitle(" Sync Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
 
 	menu.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape {
 			a.showPage("main")
-			return nil
-		}
-		// Debug: Handle ANY key to test if input is received
-		// Press 'x' to test
-		if event.Rune() == 'x' {
-			a.showOutput("DEBUG", "Key 'x' was pressed! Input capture is working.")
-			return nil
-		}
-		// Explicitly handle Enter key since SetSelectedFunc isn't working
-		if event.Key() == tcell.KeyEnter {
-			index := a.syncMenu.GetCurrentItem()
-			switch index {
-			case 0:
-				a.runQuickSync()
-			case 1:
-				a.runDryRunSync()
-			case 2:
-				a.testSyncConnectivity()
-			case 3:
-				a.showRemoteSize()
-			case 5:
-				a.showPage("main")
-			}
 			return nil
 		}
 		return event
