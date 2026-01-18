@@ -8,9 +8,9 @@ A comprehensive 3-stage backup solution for Docker compose stacks using restic w
 # 1. Run installation
 ./install.sh
 
-# 2. Configure (edit config/backup.conf)
-cp config/backup.conf.template config/backup.conf
-nano config/backup.conf
+# 2. Configure (edit config/config.ini)
+cp config/config.ini.template config/config.ini
+nano config/config.ini
 
 # 3. Select directories for backup
 ./bin/backup-tui-go              # Launch TUI
@@ -31,6 +31,29 @@ nano config/backup.conf
 **Stage 1: Local Restic Backup** → **Stage 2: Cloud Sync** → **Stage 3: Disaster Recovery**
 
 All three stages are managed by a single unified binary: `backup-tui-go`
+
+### Data Flow
+
+```
+┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
+│   Docker Stacks     │     │   Restic Repository │     │    Cloud Storage    │
+│  (DOCKER_STACKS_DIR)│     │  (RESTIC_REPOSITORY)│     │ (RCLONE_REMOTE:PATH)│
+└──────────┬──────────┘     └──────────┬──────────┘     └──────────┬──────────┘
+           │                           │                           │
+           │  Stage 1: backup          │  Stage 2: sync            │
+           │  (restic backup)          │  (rclone sync)            │
+           ├──────────────────────────►├──────────────────────────►│
+           │                           │                           │
+           │                           │  Stage 3: restore         │
+           │                           │◄──────────────────────────┤
+           │                           │  (rclone sync)            │
+           │                           │                           │
+└──────────────────────────────────────┴───────────────────────────┘
+```
+
+- **Stage 1**: Stops Docker containers, backs up stack directories to local restic repository, restarts containers
+- **Stage 2**: Syncs the entire restic repository to cloud storage (preserves deduplication and snapshots)
+- **Stage 3**: Restores the restic repository from cloud to a local path for disaster recovery
 
 ## Unified TUI Binary
 
@@ -73,8 +96,8 @@ The `backup-tui-go` binary provides both an interactive TUI and headless CLI com
 │   ├── tui/                   # TUI screens
 │   └── util/                  # Utilities (exec, lock, log)
 ├── config/                    # Configuration files
-│   ├── backup.conf            # Main configuration
-│   └── backup.conf.template   # Template with comments
+│   ├── config.ini            # Main configuration
+│   └── config.ini.template   # Template with comments
 ├── locks/                     # Lock files
 ├── logs/                      # Runtime logs
 ├── dirlist                    # Directory enable/disable list
@@ -86,7 +109,7 @@ The `backup-tui-go` binary provides both an interactive TUI and headless CLI com
 The configuration uses INI-style sections:
 
 ```ini
-# config/backup.conf
+# config/config.ini
 
 [docker]
 DOCKER_STACKS_DIR=/opt/docker-stacks
@@ -111,13 +134,13 @@ TRANSFERS=4
 
 1. Copy the template:
    ```bash
-   cp config/backup.conf.template config/backup.conf
-   chmod 600 config/backup.conf
+   cp config/config.ini.template config/config.ini
+   chmod 600 config/config.ini
    ```
 
 2. Edit with your settings:
    ```bash
-   nano config/backup.conf
+   nano config/config.ini
    ```
 
 3. Configure rclone for cloud storage (optional):
