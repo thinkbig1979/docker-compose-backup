@@ -1,6 +1,12 @@
 # Logs directory - contains runtime logs and PID files
 logs/
 
+# Lock files - created at runtime
+locks/
+
 # Go binaries (build artifacts, not the distributed binaries)
 cmd/manage-dirlist/manage-dirlist
 cmd/docker-backup/docker-backup
+
+# Generated config files
+config/backup.conf

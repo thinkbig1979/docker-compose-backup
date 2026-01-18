@@ -14,10 +14,10 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly TUI_LOG_FILE="$SCRIPT_DIR/../logs/backup_tui.log"
 
 # Backup system scripts
-readonly DOCKER_BACKUP_SCRIPT="$SCRIPT_DIR/docker-backup.sh"
+readonly DOCKER_BACKUP_SCRIPT="$SCRIPT_DIR/docker-backup-go"
 readonly RCLONE_BACKUP_SCRIPT="$SCRIPT_DIR/../scripts/rclone_backup.sh"
 readonly RCLONE_RESTORE_SCRIPT="$SCRIPT_DIR/../scripts/rclone_restore.sh"
-readonly MANAGE_DIRLIST_SCRIPT="$SCRIPT_DIR/manage-dirlist.sh"
+readonly MANAGE_DIRLIST_SCRIPT="$SCRIPT_DIR/manage-dirlist-go"
 
 # Configuration files
 readonly BACKUP_CONFIG="$SCRIPT_DIR/../config/backup.conf"

@@ -17,9 +17,8 @@ echo ""
 echo "[1/4] Creating directory structure..."
 mkdir -p "$SCRIPT_DIR/logs"
 mkdir -p "$SCRIPT_DIR/locks"
-mkdir -p "$SCRIPT_DIR/lib"
 mkdir -p "$SCRIPT_DIR/config"
-echo "      Created: logs/, locks/, lib/, config/"
+echo "      Created: logs/, locks/, config/"
 
 # Set up configuration
 echo ""
@@ -37,12 +36,13 @@ else
     echo "      backup.conf already exists"
 fi
 
-# Make scripts executable
+# Make binaries and scripts executable
 echo ""
-echo "[3/4] Setting script permissions..."
+echo "[3/4] Setting permissions..."
+chmod +x "$SCRIPT_DIR/bin/docker-backup-go" 2>/dev/null && echo "      bin/docker-backup-go - executable" || true
+chmod +x "$SCRIPT_DIR/bin/manage-dirlist-go" 2>/dev/null && echo "      bin/manage-dirlist-go - executable" || true
 chmod +x "$SCRIPT_DIR/bin"/*.sh 2>/dev/null && echo "      bin/*.sh - executable" || true
 chmod +x "$SCRIPT_DIR/scripts"/*.sh 2>/dev/null && echo "      scripts/*.sh - executable" || true
-chmod +x "$SCRIPT_DIR/utils"/*.sh 2>/dev/null && echo "      utils/*.sh - executable" || true
 
 # Create empty dirlist if it doesn't exist
 echo ""
@@ -76,8 +76,9 @@ echo ""
 echo "2. (Optional) Configure cloud storage:"
 echo "   rclone config"
 echo ""
-echo "3. Launch the TUI:"
-echo "   ./bin/backup-tui.sh"
+echo "3. Run backup utilities:"
+echo "   ./bin/docker-backup-go --help     # Backup utility"
+echo "   ./bin/manage-dirlist-go           # Directory management TUI"
 echo ""
-echo "For help: ./bin/backup-tui.sh --help"
+echo "For help: ./bin/docker-backup-go --help"
 echo "========================================"

@@ -8,60 +8,116 @@ A comprehensive 3-stage backup solution for Docker compose stacks using restic w
 # 1. Run installation
 ./install.sh
 
-# 2. Launch the Text User Interface
-./bin/backup-tui.sh
+# 2. Configure (edit config/backup.conf)
+cp config/backup.conf.template config/backup.conf
+nano config/backup.conf
 
-# 3. Or run backup directly  
-./bin/docker-backup.sh
+# 3. Select directories for backup
+./bin/backup-tui-go              # Launch TUI
 
-# 4. Or run individual stages
-./scripts/rclone_backup.sh    # Cloud sync
-./scripts/rclone_restore.sh   # Cloud restore
+# 4. Run backup (dry-run first)
+./bin/backup-tui-go backup --dry-run -v
+
+# 5. Run actual backup
+./bin/backup-tui-go backup -v
+
+# 6. (Optional) Cloud sync
+./bin/backup-tui-go sync         # Upload to cloud
+./bin/backup-tui-go restore      # Restore from cloud
 ```
 
 ## 3-Stage Architecture
 
 **Stage 1: Local Restic Backup** → **Stage 2: Cloud Sync** → **Stage 3: Disaster Recovery**
 
-1. `docker-backup.sh` - Creates local restic backups of Docker stacks
-2. `rclone_backup.sh` - Syncs local repository to cloud storage  
-3. `rclone_restore.sh` - Restores repository from cloud
+All three stages are managed by a single unified binary: `backup-tui-go`
+
+## Unified TUI Binary
+
+The `backup-tui-go` binary provides both an interactive TUI and headless CLI commands:
+
+```bash
+# Interactive TUI mode (default)
+./bin/backup-tui-go
+
+# Headless CLI commands
+./bin/backup-tui-go backup              # Stage 1: Local backup
+./bin/backup-tui-go backup --dry-run    # Preview backup
+./bin/backup-tui-go sync                # Stage 2: Cloud sync
+./bin/backup-tui-go sync --dry-run      # Preview sync
+./bin/backup-tui-go restore [PATH]      # Stage 3: Restore from cloud
+./bin/backup-tui-go status              # Show system status
+./bin/backup-tui-go validate            # Validate configuration
+./bin/backup-tui-go list-backups        # List backup snapshots
+./bin/backup-tui-go health              # Run health diagnostics
+
+# Common flags
+-v, --verbose     Enable verbose output
+-n, --dry-run     Perform dry run (no changes)
+-c, --config      Path to config file
+-h, --help        Show help message
+```
 
 ## Repository Structure
 
 ```
-├── bin/                    # Main executable scripts
-│   ├── backup-tui.sh      # Text User Interface (recommended)
-│   ├── docker-backup.sh   # Stage 1: Local backup
-│   └── manage-dirlist.sh  # Directory management TUI
-├── scripts/               # Utility scripts  
-│   ├── rclone_backup.sh   # Stage 2: Cloud sync
-│   └── rclone_restore.sh  # Stage 3: Cloud restore
-├── config/                # Configuration files
-│   ├── backup.conf        # Main configuration (copy from template)
-│   └── backup.conf.template # Template configuration
-├── lib/                   # Shared libraries
-│   └── common.sh          # Common functions (logging, locking, validation)
-├── locks/                 # Lock files for concurrent access prevention
-├── utils/                 # Maintenance utilities
-├── docs/                  # Documentation
-├── testing/               # Test suite
-├── logs/                  # Runtime logs
-└── dirlist                # Directory selection for backups
+├── bin/                       # Executables
+│   └── backup-tui-go          # Unified backup tool (Go binary)
+├── cmd/
+│   └── backup-tui/            # Main entry point source
+├── internal/                  # Go packages
+│   ├── config/                # INI config parser
+│   ├── backup/                # Docker + restic operations
+│   ├── cloud/                 # rclone sync/restore
+│   ├── dirlist/               # Directory management
+│   ├── tui/                   # TUI screens
+│   └── util/                  # Utilities (exec, lock, log)
+├── config/                    # Configuration files
+│   ├── backup.conf            # Main configuration
+│   └── backup.conf.template   # Template with comments
+├── locks/                     # Lock files
+├── logs/                      # Runtime logs
+├── dirlist                    # Directory enable/disable list
+└── go.mod                     # Go module
 ```
 
 ## Configuration
 
-1. Copy configuration template:
+The configuration uses INI-style sections:
+
+```ini
+# config/backup.conf
+
+[docker]
+DOCKER_STACKS_DIR=/opt/docker-stacks
+DOCKER_TIMEOUT=300
+
+[local_backup]
+RESTIC_REPOSITORY=/mnt/backup/restic-repo
+RESTIC_PASSWORD=your-password
+KEEP_DAILY=7
+KEEP_WEEKLY=4
+AUTO_PRUNE=true
+
+[cloud_sync]
+RCLONE_REMOTE=backblaze
+RCLONE_PATH=/backup/restic
+TRANSFERS=4
+```
+
+**Legacy flat format is also supported for backwards compatibility.**
+
+### Configuration Steps
+
+1. Copy the template:
    ```bash
    cp config/backup.conf.template config/backup.conf
+   chmod 600 config/backup.conf
    ```
 
-2. Edit `config/backup.conf` with your settings:
+2. Edit with your settings:
    ```bash
-   BACKUP_DIR=/path/to/docker-stacks
-   RESTIC_REPOSITORY=/path/to/restic/repo
-   RESTIC_PASSWORD=your-password
+   nano config/backup.conf
    ```
 
 3. Configure rclone for cloud storage (optional):
@@ -69,118 +125,80 @@ A comprehensive 3-stage backup solution for Docker compose stacks using restic w
    rclone config
    ```
 
-## Text User Interface (TUI)
-
-The TUI provides a comprehensive interface for managing all backup operations:
-
-```bash
-./bin/backup-tui.sh
-```
-
-### TUI Features
-
-- **Breadcrumb Navigation** - Always know where you are in the menu hierarchy
-- **Quick Shortcuts** - Press `Q` for Quick Backup, `S` for Quick Status from main menu
-- **Auto-Sync Detection** - Automatically detects when directories have been added/removed
-- **Detailed Validation** - Comprehensive prerequisite checks with detailed feedback
-- **Directory Management** - Enable/disable directories, bulk operations, import/export
-
-### Main Menu Options
-
-| Option | Description |
-|--------|-------------|
-| Stage 1: Docker Stack Backup | Local restic backup operations |
-| Stage 2: Cloud Sync | Upload backups to cloud storage |
-| Stage 3: Cloud Restore | Download and restore from cloud |
-| Configuration Management | Edit configs, manage rclone remotes |
-| Directory List Management | Select which directories to backup |
-| Monitoring & Status | View system status and resources |
-| System Health Check | Verify all prerequisites |
-| View Logs | Access backup and sync logs |
-
-### Directory Management
-
-The TUI includes comprehensive directory management:
-
-- **Auto-Sync Detection** - Shows `[!]` indicator when directories are out of sync
-- **Bulk Operations** - Enable/disable all, pattern matching, templates
-- **Import/Export** - Save and restore directory configurations
-- **Validation** - Check dirlist file format and content
-
-## Directory List Management (Standalone)
-
-Manage backup directories independently:
-
-```bash
-# Interactive mode
-./bin/manage-dirlist.sh
-
-# Sync directories before showing interface
-./bin/manage-dirlist.sh --prune
-
-# Only sync, no interface
-./bin/manage-dirlist.sh --prune-only
-```
+4. Validate configuration:
+   ```bash
+   ./bin/backup-tui-go validate
+   ```
 
 ## Features
 
-- **Text User Interface (TUI)** - Unified management interface with breadcrumb navigation
-- **Selective Backup** - Choose which Docker stacks to backup via dirlist
-- **Auto-Sync Detection** - Automatically detects new/removed directories
-- **File Locking** - Prevents concurrent modifications to configuration
-- **Sequential Processing** - Safe, controlled operations
-- **Smart Docker Management** - Only affects running stacks
-- **Comprehensive Logging** - Detailed progress and error tracking
-- **Dry Run Mode** - Test operations without changes
-- **Signal Handling** - Graceful shutdown and cleanup
-- **Detailed Validation** - Prerequisite checks with itemized feedback
-
-## Shared Library
-
-The `lib/common.sh` library provides shared functionality:
-
-- **Logging** - Consistent log format with levels (INFO, WARN, ERROR, DEBUG)
-- **Input Validation** - Path sanitization, directory name validation
-- **File Locking** - Prevent concurrent access with `flock`
-- **Temp File Management** - Automatic cleanup of temporary files
-- **Configuration Parsing** - Secure config file loading
-- **Password Security** - Safe password handling (file, command, or direct)
+- **Unified Binary** - Single tool for all backup operations
+- **Interactive TUI** - Menu-driven interface with tview
+- **Headless CLI** - Full scripting/cron support
+- **Selective Backup** - Choose which Docker stacks to backup
+- **Smart Docker Management** - Only stops/starts running containers
+- **Retry Logic** - Automatic retries for cloud operations
+- **File Locking** - Prevents concurrent operations
+- **Signal Handling** - Graceful shutdown with cleanup
+- **Dry Run Mode** - Preview operations before execution
+- **Comprehensive Logging** - Detailed logs to file and console
 
 ## Prerequisites
 
 ```bash
 # Required
-sudo apt-get install dialog restic docker.io
+sudo apt-get install restic docker.io docker-compose-v2
 
-# Optional (for cloud sync)
+# Optional (for cloud sync - Stage 2 & 3)
 sudo apt-get install rclone
+
+# Build from source (optional)
+go build -o bin/backup-tui-go ./cmd/backup-tui/
 ```
 
-## Documentation
+## TUI Menu Structure
 
-- Full documentation: `docs/README.md`
-- Test suite: `testing/README.md`
-- Configuration help: `config/backup.conf.template`
+```
+MAIN MENU
+├── 1. Backup (Stage 1: Local)
+│   ├── Quick Backup
+│   ├── Dry Run
+│   └── List Snapshots
+├── 2. Cloud Sync (Stage 2: Upload)
+│   ├── Quick Sync
+│   ├── Dry Run
+│   └── Test Connectivity
+├── 3. Cloud Restore (Stage 3: Download)
+│   ├── Restore Repository
+│   └── Test Connectivity
+├── 4. Directory Management
+│   └── Select/Toggle Directories
+├── 5. Status & Logs
+├── Q. Quick Backup (shortcut)
+├── S. Quick Status (shortcut)
+└── 0. Exit
+```
 
-## Testing
+## Cron Example
 
 ```bash
-cd testing/scripts
-./run-tests.sh --all      # Run complete test suite
-./run-tests.sh --docker   # Run tests in Docker environment
+# Daily backup at 2 AM
+0 2 * * * /path/to/backup-tui-go backup -v >> /var/log/backup.log 2>&1
+
+# Weekly cloud sync on Sundays at 3 AM
+0 3 * * 0 /path/to/backup-tui-go sync -v >> /var/log/backup-sync.log 2>&1
 ```
 
-## Keyboard Shortcuts (TUI)
+## Legacy Tools
 
-| Key | Action |
-|-----|--------|
-| `Q` | Quick Backup (from main menu) |
-| `S` | Quick Status (from main menu) |
-| `Space` | Toggle selection in checklists |
-| `Enter` | Confirm selection |
-| `Esc` | Cancel / Go back |
-| `Tab` | Move between buttons |
-| Arrow keys | Navigate menus |
+The following legacy tools are deprecated but still available:
+
+- `bin/docker-backup-go` - Stage 1 only
+- `bin/manage-dirlist-go` - Directory management only
+- `scripts/rclone_backup.sh` - Stage 2 only
+- `scripts/rclone_restore.sh` - Stage 3 only
+
+**Use `backup-tui-go` instead for all operations.**
 
 ---
 

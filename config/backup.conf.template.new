@@ -1,0 +1,109 @@
+# Backup TUI - Unified Configuration
+# Docker Stack 3-Stage Backup System
+#
+# This configuration file uses INI-style sections for organization.
+# The system also supports legacy flat format for backwards compatibility.
+
+#===========================================
+# [docker] - Docker Stacks Configuration
+#===========================================
+[docker]
+# Directory containing Docker compose stacks to backup
+# Each subdirectory should contain a docker-compose.yml or compose.yml
+DOCKER_STACKS_DIR=/opt/docker-stacks
+
+# Timeout for docker compose stop/start commands (seconds)
+DOCKER_TIMEOUT=300
+
+#===========================================
+# [local_backup] - Local Restic Repository
+#===========================================
+[local_backup]
+# Local restic repository path (or sftp://, s3://, etc.)
+RESTIC_REPOSITORY=/mnt/backup/restic-repo
+
+# Password configuration (choose ONE method)
+# Method 1: Inline password (least secure, use file permissions)
+RESTIC_PASSWORD=your-secure-password
+
+# Method 2: Password file (recommended)
+# PASSWORD_FILE=/etc/backup/restic.password
+
+# Method 3: Password command (most secure)
+# PASSWORD_COMMAND="pass show backup/restic"
+
+# Backup timeout in seconds (default: 3600 = 1 hour)
+BACKUP_TIMEOUT=3600
+
+# Custom hostname for backup identification (optional)
+# HOSTNAME=my-server
+
+# Retention policy - how many snapshots to keep
+KEEP_DAILY=7
+KEEP_WEEKLY=4
+KEEP_MONTHLY=6
+KEEP_YEARLY=2
+
+# Automatically prune old snapshots after successful backup
+AUTO_PRUNE=true
+
+# Post-backup verification
+ENABLE_VERIFICATION=true
+
+# Verification depth: metadata (fast), files (medium), data (slow but thorough)
+VERIFICATION_DEPTH=metadata
+
+#===========================================
+# [cloud_sync] - Remote Cloud Storage (Stage 2 & 3)
+#===========================================
+[cloud_sync]
+# Rclone remote name (as configured via 'rclone config')
+# Run 'rclone listremotes' to see available remotes
+RCLONE_REMOTE=backblaze
+
+# Remote path where backups will be stored
+RCLONE_PATH=/backup/restic
+
+# Number of concurrent file transfers (default: 4)
+# Reduce if you have bandwidth or rate limiting concerns
+TRANSFERS=4
+
+# Number of retry attempts on failure (default: 3)
+# Uses exponential backoff between retries
+RETRIES=3
+
+# Bandwidth limit (optional)
+# Examples: "10M" (10 MB/s), "500k" (500 KB/s), "1G" (1 GB/s)
+# BANDWIDTH=10M
+
+#===========================================
+# Example Configurations
+#===========================================
+
+# Small home setup:
+# [docker]
+# DOCKER_STACKS_DIR=/home/user/docker-projects
+# DOCKER_TIMEOUT=120
+#
+# [local_backup]
+# RESTIC_REPOSITORY=/home/user/backups/restic-repo
+# BACKUP_TIMEOUT=1800
+# KEEP_DAILY=3
+# KEEP_WEEKLY=2
+
+# Large production setup:
+# [docker]
+# DOCKER_STACKS_DIR=/srv/docker-stacks
+# DOCKER_TIMEOUT=600
+#
+# [local_backup]
+# RESTIC_REPOSITORY=sftp:backup-server:/srv/backups/restic-repo
+# PASSWORD_FILE=/etc/backup/restic.password
+# BACKUP_TIMEOUT=7200
+# VERIFICATION_DEPTH=files
+#
+# [cloud_sync]
+# RCLONE_REMOTE=s3-backup
+# RCLONE_PATH=/docker-backups/production
+# TRANSFERS=8
+# BANDWIDTH=50M
