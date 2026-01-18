@@ -247,22 +247,6 @@ func (a *App) createSyncMenu() *tview.Flex {
 	a.syncMenu.AddItem("", "", '-', nil)
 	a.syncMenu.AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
 
-	// Use SetSelectedFunc to handle selection - this is more reliable
-	a.syncMenu.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
-		switch index {
-		case 0: // Quick Sync
-			a.runQuickSync()
-		case 1: // Dry Run
-			a.runDryRunSync()
-		case 2: // Test Connectivity
-			a.testSyncConnectivity()
-		case 3: // Show Remote Size
-			a.showRemoteSize()
-		case 5: // Back to Main Menu
-			a.showPage("main")
-		}
-	})
-
 	menu := a.syncMenu
 	menu.SetBorder(true).SetTitle(" Sync Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
@@ -270,6 +254,23 @@ func (a *App) createSyncMenu() *tview.Flex {
 	menu.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape {
 			a.showPage("main")
+			return nil
+		}
+		// Explicitly handle Enter key since SetSelectedFunc isn't working
+		if event.Key() == tcell.KeyEnter {
+			index := a.syncMenu.GetCurrentItem()
+			switch index {
+			case 0:
+				a.runQuickSync()
+			case 1:
+				a.runDryRunSync()
+			case 2:
+				a.testSyncConnectivity()
+			case 3:
+				a.showRemoteSize()
+			case 5:
+				a.showPage("main")
+			}
 			return nil
 		}
 		return event
