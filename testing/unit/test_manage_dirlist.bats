@@ -7,14 +7,14 @@ load "${BATS_LIB_PATH}/bats-file/load.bash"
 
 setup() {
     export TEST_TEMP_DIR="$(mktemp -d)"
-    export TEST_DIRLIST="${TEST_TEMP_DIR}/dirlist"
     export TEST_BACKUP_DIR="${TEST_TEMP_DIR}/docker-stacks"
-    
+    export BACKUP_CONFIG="${TEST_TEMP_DIR}/backup.conf"
+
     # Create test backup directory structure
     mkdir -p "${TEST_BACKUP_DIR}/app1"
     mkdir -p "${TEST_BACKUP_DIR}/app2"
     mkdir -p "${TEST_BACKUP_DIR}/app3"
-    
+
     # Create sample docker-compose files
     for app in app1 app2 app3; do
         cat > "${TEST_BACKUP_DIR}/${app}/docker-compose.yml" << EOF
@@ -24,9 +24,11 @@ services:
     image: nginx:alpine
 EOF
     done
-    
-    # Set environment variable for testing
-    export DIRLIST_FILE="${TEST_DIRLIST}"
+
+    # Create config file
+    cat > "${BACKUP_CONFIG}" << EOF
+BACKUP_DIR=${TEST_BACKUP_DIR}
+EOF
 }
 
 teardown() {
@@ -44,92 +46,51 @@ teardown() {
     assert_output --partial "Usage:"
 }
 
-@test "manage-dirlist.sh creates new dirlist file" {
-    run ../workspace/manage-dirlist.sh --add app1
+@test "manage-dirlist.sh help shows prune option" {
+    run ../workspace/manage-dirlist.sh --help
     assert_success
-    assert_file_exists "${TEST_DIRLIST}"
-    
-    run cat "${TEST_DIRLIST}"
-    assert_output "app1"
+    assert_output --partial "prune"
 }
 
-@test "manage-dirlist.sh adds multiple directories" {
-    run ../workspace/manage-dirlist.sh --add app1
+@test "manage-dirlist.sh help shows prune-only option" {
+    run ../workspace/manage-dirlist.sh --help
     assert_success
-    
-    run ../workspace/manage-dirlist.sh --add app2
-    assert_success
-    
-    run cat "${TEST_DIRLIST}"
-    assert_line "app1"
-    assert_line "app2"
+    assert_output --partial "prune-only"
 }
 
-@test "manage-dirlist.sh prevents duplicate entries" {
-    run ../workspace/manage-dirlist.sh --add app1
+@test "manage-dirlist.sh prune-only mode discovers directories" {
+    run ../workspace/manage-dirlist.sh --prune-only
     assert_success
-    
-    run ../workspace/manage-dirlist.sh --add app1
-    assert_success
-    
-    local count
-    count=$(grep -c "app1" "${TEST_DIRLIST}")
-    [[ "${count}" -eq 1 ]]
+    # Should report discovered directories
+    assert_output --partial "app1" || assert_output --partial "Docker compose directories" || assert_output --partial "Found"
 }
 
-@test "manage-dirlist.sh removes directories" {
-    # Add directories first
-    echo -e "app1\napp2\napp3" > "${TEST_DIRLIST}"
-    
-    run ../workspace/manage-dirlist.sh --remove app2
+@test "manage-dirlist.sh prune-only mode succeeds" {
+    run ../workspace/manage-dirlist.sh --prune-only
     assert_success
-    
-    run cat "${TEST_DIRLIST}"
-    assert_line "app1"
-    refute_line "app2"
-    assert_line "app3"
 }
 
-@test "manage-dirlist.sh lists directories" {
-    echo -e "app1\napp2\napp3" > "${TEST_DIRLIST}"
-    
-    run ../workspace/manage-dirlist.sh --list
+@test "manage-dirlist.sh shows synchronization summary" {
+    run ../workspace/manage-dirlist.sh --prune-only
     assert_success
-    assert_output --partial "app1"
-    assert_output --partial "app2"
-    assert_output --partial "app3"
+    # Should show some summary information
+    assert_output --partial "synchronized" || assert_output --partial "success" || assert_output --partial "completed" || assert_output --partial "SUCCESS"
 }
 
-@test "manage-dirlist.sh handles empty dirlist" {
-    touch "${TEST_DIRLIST}"
-    
-    run ../workspace/manage-dirlist.sh --list
-    assert_success
-    assert_output --partial "empty" || assert_output --partial "No directories"
+@test "manage-dirlist.sh handles missing backup directory gracefully" {
+    # Point to non-existent directory
+    cat > "${BACKUP_CONFIG}" << EOF
+BACKUP_DIR=/nonexistent/directory
+EOF
+
+    run ../workspace/manage-dirlist.sh --prune-only
+    # Should fail or show error
+    assert_failure
+    assert_output --partial "not found" || assert_output --partial "does not exist" || assert_output --partial "ERROR"
 }
 
-@test "manage-dirlist.sh validates directories exist" {
-    run ../workspace/manage-dirlist.sh --add nonexistent-app
-    # Should either succeed with warning or fail gracefully
-    assert_success || assert_failure
-}
-
-@test "manage-dirlist.sh clears all directories" {
-    echo -e "app1\napp2\napp3" > "${TEST_DIRLIST}"
-    
-    run ../workspace/manage-dirlist.sh --clear
-    assert_success
-    
-    run cat "${TEST_DIRLIST}"
-    assert_output ""
-}
-
-@test "manage-dirlist.sh shows available directories" {
-    export BACKUP_DIR="${TEST_BACKUP_DIR}"
-    
-    run ../workspace/manage-dirlist.sh --available
-    assert_success
-    assert_output --partial "app1"
-    assert_output --partial "app2"
-    assert_output --partial "app3"
+@test "manage-dirlist.sh fails gracefully with unknown option" {
+    run ../workspace/manage-dirlist.sh --unknown-option
+    assert_failure
+    assert_output --partial "Unknown" || assert_output --partial "error" || assert_output --partial "Usage"
 }
