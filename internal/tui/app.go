@@ -173,6 +173,30 @@ func (a *App) createMainMenu() *tview.Flex {
 	menu.SetBorder(true).SetTitle(" Main Menu ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
 
+	// Handle Enter key - SetSelectedFunc is required for Enter to work
+	menu.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		switch index {
+		case 0:
+			a.showPage("backup")
+		case 1:
+			a.showPage("sync")
+		case 2:
+			a.showPage("restore")
+		case 3:
+			a.showPage("dirlist")
+		case 4:
+			a.showPage("status")
+		case 6:
+			a.runQuickBackup()
+		case 7:
+			a.runDryRunBackup()
+		case 8:
+			a.showQuickStatus()
+		case 10:
+			a.app.Stop()
+		}
+	})
+
 	// Status bar
 	statusBar := a.createStatusBar()
 
@@ -212,6 +236,22 @@ func (a *App) createBackupMenu() *tview.Flex {
 
 	menu.SetBorder(true).SetTitle(" Backup Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
+
+	// Handle Enter key - SetSelectedFunc is required for Enter to work
+	menu.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		switch index {
+		case 0:
+			a.runQuickBackup()
+		case 1:
+			a.runDryRunBackup()
+		case 2:
+			a.showSnapshots()
+		case 3:
+			a.verifyRepository()
+		case 5:
+			a.showPage("main")
+		}
+	})
 
 	// Instructions
 	instructions := tview.NewTextView().
@@ -264,6 +304,22 @@ func (a *App) createSyncMenu() *tview.Flex {
 	menu.SetBorder(true).SetTitle(" Sync Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
 
+	// Handle Enter key - SetSelectedFunc is required for Enter to work
+	menu.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		switch index {
+		case 0:
+			a.runQuickSync()
+		case 1:
+			a.runDryRunSync()
+		case 2:
+			a.testSyncConnectivity()
+		case 3:
+			a.showRemoteSize()
+		case 5:
+			a.showPage("main")
+		}
+	})
+
 	menu.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape {
 			a.showPage("main")
@@ -310,6 +366,20 @@ func (a *App) createRestoreMenu() *tview.Flex {
 	menu.SetBorder(true).SetTitle(" Restore Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
 
+	// Handle Enter key - SetSelectedFunc is required for Enter to work
+	menu.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		switch index {
+		case 0:
+			a.runRestore()
+		case 1:
+			a.runRestorePreview()
+		case 2:
+			a.testRestoreConnectivity()
+		case 4:
+			a.showPage("main")
+		}
+	})
+
 	menu.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape {
 			a.showPage("main")
@@ -355,6 +425,20 @@ func (a *App) createStatusScreen() *tview.Flex {
 
 	menu.SetBorder(true).SetTitle(" Status Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
+
+	// Handle Enter key - SetSelectedFunc is required for Enter to work
+	menu.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		switch index {
+		case 0:
+			a.showSystemStatus()
+		case 1:
+			a.viewLogs()
+		case 2:
+			a.runHealthCheck()
+		case 4:
+			a.showPage("main")
+		}
+	})
 
 	menu.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape {
