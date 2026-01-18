@@ -75,36 +75,36 @@ type Config struct {
 	LoadThreshold        int
 
 	// Performance
-	EnablePerformanceMode   bool
-	EnableDockerStateCache  bool
+	EnablePerformanceMode  bool
+	EnableDockerStateCache bool
 
 	// Logging
-	EnableJSONLogging      bool
-	EnableProgressBars     bool
+	EnableJSONLogging       bool
+	EnableProgressBars      bool
 	EnableMetricsCollection bool
 }
 
 // App holds application state
 type App struct {
-	config           Config
-	configFile       string
-	dirlistFile      string
-	logFile          string
-	pidFile          string
-	locksDir         string
-	baseDir          string
+	config      Config
+	configFile  string
+	dirlistFile string
+	logFile     string
+	pidFile     string
+	locksDir    string
+	baseDir     string
 
-	dirlist          map[string]bool
-	stackStates      map[string]string
-	cleanupHandlers  []func()
+	dirlist         map[string]bool
+	stackStates     map[string]string
+	cleanupHandlers []func()
 
-	verbose          bool
-	dryRun           bool
+	verbose bool
+	dryRun  bool
 
 	currentBackupDir string
 	backupInProgress bool
 
-	logFileHandle    *os.File
+	logFileHandle *os.File
 }
 
 func main() {
@@ -266,12 +266,24 @@ func (app *App) log(level, color, format string, args ...interface{}) {
 	}
 }
 
-func (app *App) logInfo(format string, args ...interface{})     { app.log("INFO", ColorGreen, format, args...) }
-func (app *App) logWarn(format string, args ...interface{})     { app.log("WARN", ColorYellow, format, args...) }
-func (app *App) logError(format string, args ...interface{})    { app.log("ERROR", ColorRed, format, args...) }
-func (app *App) logDebug(format string, args ...interface{})    { app.log("DEBUG", ColorBlue, format, args...) }
-func (app *App) logProgress(format string, args ...interface{}) { app.log("PROGRESS", ColorCyan, format, args...) }
-func (app *App) logSuccess(format string, args ...interface{})  { app.log("SUCCESS", ColorGreen, format, args...) }
+func (app *App) logInfo(format string, args ...interface{}) {
+	app.log("INFO", ColorGreen, format, args...)
+}
+func (app *App) logWarn(format string, args ...interface{}) {
+	app.log("WARN", ColorYellow, format, args...)
+}
+func (app *App) logError(format string, args ...interface{}) {
+	app.log("ERROR", ColorRed, format, args...)
+}
+func (app *App) logDebug(format string, args ...interface{}) {
+	app.log("DEBUG", ColorBlue, format, args...)
+}
+func (app *App) logProgress(format string, args ...interface{}) {
+	app.log("PROGRESS", ColorCyan, format, args...)
+}
+func (app *App) logSuccess(format string, args ...interface{}) {
+	app.log("SUCCESS", ColorGreen, format, args...)
+}
 
 func (app *App) loadConfig() error {
 	app.logInfo("Loading configuration from: %s", app.configFile)
@@ -560,6 +572,8 @@ func (app *App) saveDirlist() error {
 }
 
 func (app *App) checkStackStatus(dirPath, dirName string) bool {
+	_ = dirName // Used for caller consistency, may be used for logging later
+
 	cmd := exec.Command("docker", "compose", "ps", "--services", "--filter", "status=running")
 	cmd.Dir = dirPath
 	output, err := cmd.Output()
