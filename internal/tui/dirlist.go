@@ -10,8 +10,9 @@ import (
 
 // createDirlistScreen creates the directory management screen
 func (a *App) createDirlistScreen() *tview.Flex {
-	// Reload dirlist
+	// Reload dirlist and sync with discovered directories
 	a.dirlist.Load()
+	a.dirlist.Sync()
 
 	// Get all directories
 	allDirs := a.dirlist.GetAll()
@@ -215,7 +216,7 @@ func (a *App) saveDirlistChanges(selections map[string]bool) {
 
 // refreshDirlistScreen recreates the dirlist screen with fresh data
 func (a *App) refreshDirlistScreen() {
-	a.dirlist.Load()
+	// createDirlistScreen handles Load() and Sync() internally
 	a.pages.RemovePage("dirlist")
 	a.pages.AddPage("dirlist", a.createDirlistScreen(), true, false)
 }

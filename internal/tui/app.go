@@ -32,8 +32,9 @@ func NewApp(cfg *config.Config) *App {
 
 // Run starts the TUI application
 func (a *App) Run() error {
-	// Load dirlist
+	// Load dirlist and sync with discovered directories
 	a.dirlist.Load()
+	a.dirlist.Sync()
 
 	// Setup pages
 	a.setupPages()
@@ -110,14 +111,14 @@ func (a *App) createMainMenu() *tview.Flex {
 			a.showPage("status")
 		}).
 		AddItem("", "", '-', nil).
-		AddItem("Q. Quick Backup", "Run backup now", 'q', func() {
+		AddItem("B. Quick Backup", "Run backup now", 'b', func() {
 			a.runQuickBackup()
 		}).
 		AddItem("S. Quick Status", "Show quick status", 's', func() {
 			a.showQuickStatus()
 		}).
 		AddItem("", "", '-', nil).
-		AddItem("0. Exit", "Exit the application", '0', func() {
+		AddItem("Q. Quit", "Exit the application", 'q', func() {
 			a.app.Stop()
 		})
 
