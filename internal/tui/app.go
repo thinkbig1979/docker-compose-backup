@@ -515,7 +515,8 @@ func (a *App) verifyRepository() {
 // ============================================================================
 
 func (a *App) runQuickSync() {
-	a.showOutput("Cloud Sync", "Starting cloud sync...\n\nThis will upload the restic repository to cloud storage.\n")
+	// Debug: Show that callback was triggered
+	a.showOutput("Cloud Sync", "DEBUG: runQuickSync called!\n\nStarting cloud sync...\n\nThis will upload the restic repository to cloud storage.\n")
 
 	go func() {
 		if err := a.config.ValidateForCloudSync(); err != nil {
@@ -999,7 +1000,8 @@ func (a *App) showOutput(title, initialText string) {
 	a.outputView.Clear()
 	a.outputView.SetTitle(" " + title + " ")
 	a.outputView.SetText(initialText)
-	a.showPage("output")
+	a.pages.SwitchToPage("output")
+	a.app.SetFocus(a.outputView)
 	a.app.Draw()
 }
 
