@@ -1,5 +1,6 @@
 # Logs directory - contains runtime logs and PID files
 logs/
 
-# Go binaries (build artifacts, not the distributed binary)
+# Go binaries (build artifacts, not the distributed binaries)
 cmd/manage-dirlist/manage-dirlist
+cmd/docker-backup/docker-backup
