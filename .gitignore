@@ -1,2 +1,6 @@
 # Logs directory - contains runtime logs and PID files
 logs/
+
+# Go binaries
+cmd/manage-dirlist/manage-dirlist
+bin/manage-dirlist-go
