@@ -60,11 +60,12 @@ func (m Model) executeBackup(dryRun bool) tea.Cmd {
 
 // buildBackupCommand builds the command to run backup
 func (m Model) buildBackupCommand(dryRun bool) *exec.Cmd {
-	args := []string{"backup"}
+	// Flags must come BEFORE the subcommand for Go's flag package
+	args := []string{"-v"}
 	if dryRun {
 		args = append(args, "--dry-run")
 	}
-	args = append(args, "-v")
+	args = append(args, "backup")
 
 	// Get the path to the current binary
 	exe, _ := os.Executable()
@@ -150,11 +151,12 @@ func (m Model) executeSync(dryRun bool) tea.Cmd {
 
 // buildSyncCommand builds the command to run sync
 func (m Model) buildSyncCommand(dryRun bool) *exec.Cmd {
-	args := []string{"sync"}
+	// Flags must come BEFORE the subcommand for Go's flag package
+	args := []string{"-v"}
 	if dryRun {
 		args = append(args, "--dry-run")
 	}
-	args = append(args, "-v")
+	args = append(args, "sync")
 
 	exe, _ := os.Executable()
 	return exec.Command(exe, args...)
@@ -237,11 +239,12 @@ func (m Model) executeRestore(path string, dryRun bool) tea.Cmd {
 
 // buildRestoreCommand builds the command to run restore
 func (m Model) buildRestoreCommand(path string, dryRun bool) *exec.Cmd {
-	args := []string{"restore", path}
+	// Flags must come BEFORE the subcommand for Go's flag package
+	args := []string{"-v"}
 	if dryRun {
 		args = append(args, "--dry-run")
 	}
-	args = append(args, "-v")
+	args = append(args, "restore", path)
 
 	exe, _ := os.Executable()
 	return exec.Command(exe, args...)

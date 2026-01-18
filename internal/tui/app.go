@@ -53,7 +53,7 @@ type Model struct {
 
 	// Output view state
 	outputTitle    string
-	outputContent  strings.Builder
+	outputContent  *strings.Builder
 	outputViewport viewport.Model
 	outputReady    bool
 
@@ -66,10 +66,11 @@ type Model struct {
 // NewModel creates a new application model
 func NewModel(cfg *config.Config) Model {
 	m := Model{
-		screen:  ScreenMain,
-		config:  cfg,
-		dirlist: dirlist.NewManager(cfg.DirlistFile, cfg.LockDir, cfg.Docker.StacksDir),
-		keys:    DefaultKeyMap,
+		screen:        ScreenMain,
+		config:        cfg,
+		dirlist:       dirlist.NewManager(cfg.DirlistFile, cfg.LockDir, cfg.Docker.StacksDir),
+		keys:          DefaultKeyMap,
+		outputContent: &strings.Builder{},
 	}
 
 	// Load dirlist (ignore errors during startup)

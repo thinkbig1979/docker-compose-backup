@@ -29,7 +29,7 @@ var (
 type OutputModel struct {
 	viewport viewport.Model
 	title    string
-	content  strings.Builder
+	content  *strings.Builder
 	ready    bool
 	width    int
 	height   int
@@ -37,7 +37,9 @@ type OutputModel struct {
 
 // NewOutput creates a new output model
 func NewOutput() OutputModel {
-	return OutputModel{}
+	return OutputModel{
+		content: &strings.Builder{},
+	}
 }
 
 // Init implements tea.Model
