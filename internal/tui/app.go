@@ -29,6 +29,13 @@ type App struct {
 
 	// Output view for showing command results
 	outputView *tview.TextView
+
+	// Menu references for focus management
+	mainMenu    *tview.List
+	backupMenu  *tview.List
+	syncMenu    *tview.List
+	restoreMenu *tview.List
+	statusMenu  *tview.List
 }
 
 // NewApp creates a new TUI application
@@ -67,6 +74,8 @@ func (a *App) Run() error {
 		return event
 	})
 
+	// Set initial focus on main menu
+	a.app.SetFocus(a.mainMenu)
 	return a.app.SetRoot(a.pages, true).EnableMouse(true).Run()
 }
 
@@ -103,6 +112,22 @@ func (a *App) setupPages() {
 func (a *App) showPage(name string) {
 	a.currentPage = name
 	a.pages.SwitchToPage(name)
+
+	// Set focus on the appropriate menu
+	switch name {
+	case "main":
+		a.app.SetFocus(a.mainMenu)
+	case "backup":
+		a.app.SetFocus(a.backupMenu)
+	case "sync":
+		a.app.SetFocus(a.syncMenu)
+	case "restore":
+		a.app.SetFocus(a.restoreMenu)
+	case "status":
+		a.app.SetFocus(a.statusMenu)
+	case "output":
+		a.app.SetFocus(a.outputView)
+	}
 }
 
 func (a *App) createMainMenu() *tview.Flex {
@@ -113,7 +138,8 @@ func (a *App) createMainMenu() *tview.Flex {
 		SetText("[yellow::b]Backup TUI - Docker Stack Backup System[-:-:-]")
 
 	// Menu items
-	menu := tview.NewList().
+	a.mainMenu = tview.NewList()
+	menu := a.mainMenu.
 		AddItem("1. Backup (Stage 1: Local)", "Run local backup with restic", '1', func() {
 			a.showPage("backup")
 		}).
@@ -162,7 +188,8 @@ func (a *App) createBackupMenu() *tview.Flex {
 		SetTextAlign(tview.AlignCenter).
 		SetText("[yellow::b]Backup Menu - Stage 1: Local Backup[-:-:-]")
 
-	menu := tview.NewList().
+	a.backupMenu = tview.NewList()
+	menu := a.backupMenu.
 		AddItem("Quick Backup", "Run backup with default settings", 'q', func() {
 			a.runQuickBackup()
 		}).
@@ -212,7 +239,8 @@ func (a *App) createSyncMenu() *tview.Flex {
 		SetTextAlign(tview.AlignCenter).
 		SetText("[yellow::b]Cloud Sync Menu - Stage 2: Upload[-:-:-]")
 
-	menu := tview.NewList().
+	a.syncMenu = tview.NewList()
+	menu := a.syncMenu.
 		AddItem("Quick Sync", "Sync to cloud with default settings", 'q', func() {
 			a.runQuickSync()
 		}).
@@ -260,7 +288,8 @@ func (a *App) createRestoreMenu() *tview.Flex {
 		SetTextAlign(tview.AlignCenter).
 		SetText("[yellow::b]Cloud Restore Menu - Stage 3: Download[-:-:-]")
 
-	menu := tview.NewList().
+	a.restoreMenu = tview.NewList()
+	menu := a.restoreMenu.
 		AddItem("Restore Repository", "Download backup from cloud", 'r', func() {
 			a.runRestore()
 		}).
@@ -305,7 +334,8 @@ func (a *App) createStatusScreen() *tview.Flex {
 		SetTextAlign(tview.AlignCenter).
 		SetText("[yellow::b]Status & Logs[-:-:-]")
 
-	menu := tview.NewList().
+	a.statusMenu = tview.NewList()
+	menu := a.statusMenu.
 		AddItem("System Status", "Show system health status", 's', func() {
 			a.showSystemStatus()
 		}).
@@ -515,8 +545,7 @@ func (a *App) verifyRepository() {
 // ============================================================================
 
 func (a *App) runQuickSync() {
-	// Debug: Show that callback was triggered
-	a.showOutput("Cloud Sync", "DEBUG: runQuickSync called!\n\nStarting cloud sync...\n\nThis will upload the restic repository to cloud storage.\n")
+	a.showOutput("Cloud Sync", "Starting cloud sync...\n\nThis will upload the restic repository to cloud storage.\n")
 
 	go func() {
 		if err := a.config.ValidateForCloudSync(); err != nil {
