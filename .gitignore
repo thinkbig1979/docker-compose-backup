@@ -8,5 +8,5 @@ locks/
 cmd/manage-dirlist/manage-dirlist
 cmd/docker-backup/docker-backup
 
-# Generated config files
-config/backup.conf
+# Active config file (contains sensitive data)
+config/config.ini
