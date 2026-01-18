@@ -34,7 +34,11 @@ func NewApp(cfg *config.Config) *App {
 func (a *App) Run() error {
 	// Load dirlist and sync with discovered directories
 	a.dirlist.Load()
-	a.dirlist.Sync()
+	added, _, _ := a.dirlist.Sync()
+	// Save if new directories were discovered
+	if len(added) > 0 {
+		a.dirlist.Save()
+	}
 
 	// Setup pages
 	a.setupPages()
