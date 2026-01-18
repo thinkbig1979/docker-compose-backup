@@ -256,6 +256,12 @@ func (a *App) createSyncMenu() *tview.Flex {
 			a.showPage("main")
 			return nil
 		}
+		// Debug: Handle ANY key to test if input is received
+		// Press 'x' to test
+		if event.Rune() == 'x' {
+			a.showOutput("DEBUG", "Key 'x' was pressed! Input capture is working.")
+			return nil
+		}
 		// Explicitly handle Enter key since SetSelectedFunc isn't working
 		if event.Key() == tcell.KeyEnter {
 			index := a.syncMenu.GetCurrentItem()
