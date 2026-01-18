@@ -240,24 +240,30 @@ func (a *App) createSyncMenu() *tview.Flex {
 		SetText("[yellow::b]Cloud Sync Menu - Stage 2: Upload[-:-:-]")
 
 	a.syncMenu = tview.NewList()
-	menu := a.syncMenu.
-		AddItem("Quick Sync", "Sync to cloud with default settings", 'q', func() {
-			a.runQuickSync()
-		}).
-		AddItem("Dry Run", "Preview what would be synced", 'd', func() {
-			a.runDryRunSync()
-		}).
-		AddItem("Test Connectivity", "Test connection to cloud storage", 't', func() {
-			a.testSyncConnectivity()
-		}).
-		AddItem("Show Remote Size", "Show size of remote backup", 's', func() {
-			a.showRemoteSize()
-		}).
-		AddItem("", "", '-', nil).
-		AddItem("Back to Main Menu", "Return to main menu", 'b', func() {
-			a.showPage("main")
-		})
+	a.syncMenu.AddItem("Quick Sync", "Sync to cloud with default settings", 'q', nil)
+	a.syncMenu.AddItem("Dry Run", "Preview what would be synced", 'd', nil)
+	a.syncMenu.AddItem("Test Connectivity", "Test connection to cloud storage", 't', nil)
+	a.syncMenu.AddItem("Show Remote Size", "Show size of remote backup", 's', nil)
+	a.syncMenu.AddItem("", "", '-', nil)
+	a.syncMenu.AddItem("Back to Main Menu", "Return to main menu", 'b', nil)
 
+	// Use SetSelectedFunc to handle selection - this is more reliable
+	a.syncMenu.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		switch index {
+		case 0: // Quick Sync
+			a.runQuickSync()
+		case 1: // Dry Run
+			a.runDryRunSync()
+		case 2: // Test Connectivity
+			a.testSyncConnectivity()
+		case 3: // Show Remote Size
+			a.showRemoteSize()
+		case 5: // Back to Main Menu
+			a.showPage("main")
+		}
+	})
+
+	menu := a.syncMenu
 	menu.SetBorder(true).SetTitle(" Sync Options ").SetTitleAlign(tview.AlignCenter)
 	menu.SetSelectedBackgroundColor(tcell.ColorDarkCyan)
 
