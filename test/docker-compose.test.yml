@@ -1,0 +1,77 @@
+version: '3.8'
+
+# Test environment for backup-tui
+# Creates mock docker stacks and tests backup/restore cycle
+
+services:
+  # Test runner container
+  test-runner:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile.test
+    volumes:
+      # Mount the built binary
+      - ../bin/backup-tui:/usr/local/bin/backup-tui:ro
+      # Mount test config
+      - ./config:/app/config:ro
+      # Backup destination (persisted between runs)
+      - backup-repo:/backup
+      # Mock stacks directory
+      - ./mock-stacks:/opt/docker-stacks
+      # Test output
+      - ./output:/app/output
+    environment:
+      - TERM=xterm-256color
+    depends_on:
+      - mock-stack-1
+      - mock-stack-2
+    networks:
+      - test-net
+
+  # Mock docker stack 1 - simulates a real application
+  mock-stack-1:
+    image: alpine:latest
+    command: sh -c "echo 'stack1 data' > /data/file.txt && sleep infinity"
+    volumes:
+      - stack1-data:/data
+    networks:
+      - test-net
+
+  # Mock docker stack 2 - simulates another application
+  mock-stack-2:
+    image: alpine:latest
+    command: sh -c "echo 'stack2 data' > /data/file.txt && sleep infinity"
+    volumes:
+      - stack2-data:/data
+    networks:
+      - test-net
+
+  # MinIO for rclone cloud storage testing (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - test-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  backup-repo:
+  stack1-data:
+  stack2-data:
+  minio-data:
+
+networks:
+  test-net:
+    driver: bridge

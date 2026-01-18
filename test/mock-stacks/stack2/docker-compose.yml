@@ -1,0 +1,8 @@
+version: '3.8'
+# Mock stack 2 - simulates a database
+services:
+  db:
+    image: alpine:latest
+    command: sleep infinity
+    volumes:
+      - ./data:/var/lib/data

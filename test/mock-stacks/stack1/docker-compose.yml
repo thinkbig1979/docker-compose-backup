@@ -1,0 +1,8 @@
+version: '3.8'
+# Mock stack 1 - simulates a web application
+services:
+  app:
+    image: alpine:latest
+    command: sleep infinity
+    volumes:
+      - ./data:/data

@@ -3,6 +3,7 @@ package tui
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,24 @@ import (
 	"backup-tui/internal/config"
 	"backup-tui/internal/dirlist"
 )
+
+// Debug logger - writes to /tmp/tui-debug.log
+var debugLog *log.Logger
+
+func init() {
+	f, err := os.OpenFile("/tmp/tui-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return
+	}
+	debugLog = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
+	debugLog.Println("=== TUI Debug Log Started ===")
+}
+
+func debug(format string, args ...interface{}) {
+	if debugLog != nil {
+		debugLog.Printf(format, args...)
+	}
+}
 
 // App represents the main TUI application
 type App struct {
@@ -306,18 +325,25 @@ func (a *App) createSyncMenu() *tview.Flex {
 
 	// Handle Enter key - SetSelectedFunc is required for Enter to work
 	menu.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		debug("SyncMenu SetSelectedFunc called: index=%d, mainText=%s", index, mainText)
 		switch index {
 		case 0:
+			debug("Calling runQuickSync")
 			a.runQuickSync()
 		case 1:
+			debug("Calling runDryRunSync")
 			a.runDryRunSync()
 		case 2:
+			debug("Calling testSyncConnectivity")
 			a.testSyncConnectivity()
 		case 3:
+			debug("Calling showRemoteSize")
 			a.showRemoteSize()
 		case 5:
+			debug("Calling showPage(main)")
 			a.showPage("main")
 		}
+		debug("SyncMenu SetSelectedFunc completed")
 	})
 
 	menu.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -673,9 +699,12 @@ func (a *App) runQuickSync() {
 }
 
 func (a *App) runDryRunSync() {
+	debug("runDryRunSync called")
 	a.showOutput("Cloud Sync Dry Run", "Running sync dry run...\n\nThis shows what would be synced without uploading.\n")
+	debug("runDryRunSync: showOutput completed, starting goroutine")
 
 	go func() {
+		debug("runDryRunSync goroutine started")
 		if err := a.config.ValidateForCloudSync(); err != nil {
 			a.appendOutput(fmt.Sprintf("[red]Configuration error: %v[-:-:-]\n", err))
 			a.appendOutput("\n[white]Press ESC or Enter to go back[-:-:-]")
@@ -1113,12 +1142,19 @@ func (a *App) runHealthCheck() {
 // ============================================================================
 
 func (a *App) showOutput(title, initialText string) {
+	debug("showOutput called: title=%s", title)
 	a.outputView.Clear()
+	debug("showOutput: cleared outputView")
 	a.outputView.SetTitle(" " + title + " ")
+	debug("showOutput: set title")
 	a.outputView.SetText(initialText)
+	debug("showOutput: set text")
 	a.pages.SwitchToPage("output")
+	debug("showOutput: switched to output page")
 	a.app.SetFocus(a.outputView)
-	a.app.Draw()
+	debug("showOutput: set focus on outputView")
+	// Don't call Draw() here - tview redraws automatically after callbacks
+	debug("showOutput completed")
 }
 
 func (a *App) appendOutput(text string) {

@@ -1,0 +1,26 @@
+# Test environment for backup-tui
+FROM golang:1.21-alpine
+
+# Install required tools
+RUN apk add --no-cache \
+    bash \
+    curl \
+    docker-cli \
+    docker-cli-compose \
+    restic \
+    rclone \
+    expect \
+    ncurses \
+    jq
+
+# Create test directories
+RUN mkdir -p /app/config /app/output /opt/docker-stacks /backup
+
+WORKDIR /app
+
+# Copy test scripts
+COPY test/scripts/ /app/scripts/
+RUN chmod +x /app/scripts/*.sh
+
+# Default command runs all tests
+CMD ["/app/scripts/run-tests.sh"]
