@@ -36,13 +36,16 @@ else
     echo "      backup.conf already exists"
 fi
 
-# Make binaries and scripts executable
+# Make binary executable
 echo ""
 echo "[3/4] Setting permissions..."
-chmod +x "$SCRIPT_DIR/bin/docker-backup-go" 2>/dev/null && echo "      bin/docker-backup-go - executable" || true
-chmod +x "$SCRIPT_DIR/bin/manage-dirlist-go" 2>/dev/null && echo "      bin/manage-dirlist-go - executable" || true
-chmod +x "$SCRIPT_DIR/bin"/*.sh 2>/dev/null && echo "      bin/*.sh - executable" || true
-chmod +x "$SCRIPT_DIR/scripts"/*.sh 2>/dev/null && echo "      scripts/*.sh - executable" || true
+if [[ -f "$SCRIPT_DIR/bin/backup-tui-go" ]]; then
+    chmod +x "$SCRIPT_DIR/bin/backup-tui-go"
+    echo "      bin/backup-tui-go - executable"
+else
+    echo "      WARNING: bin/backup-tui-go not found"
+    echo "      Build with: go build -o bin/backup-tui-go ./cmd/backup-tui/"
+fi
 
 # Create empty dirlist if it doesn't exist
 echo ""
@@ -69,16 +72,17 @@ echo ""
 echo "REQUIRED: Configure before first use"
 echo "----------------------------------------"
 echo "1. Edit config/backup.conf:"
-echo "   - Set BACKUP_DIR to your Docker stacks location"
+echo "   - Set DOCKER_STACKS_DIR to your Docker stacks location"
 echo "   - Set RESTIC_REPOSITORY path"
 echo "   - Set RESTIC_PASSWORD"
 echo ""
 echo "2. (Optional) Configure cloud storage:"
 echo "   rclone config"
+echo "   Then set RCLONE_REMOTE in backup.conf"
 echo ""
-echo "3. Run backup utilities:"
-echo "   ./bin/docker-backup-go --help     # Backup utility"
-echo "   ./bin/manage-dirlist-go           # Directory management TUI"
+echo "3. Run the backup utility:"
+echo "   ./bin/backup-tui-go              # Interactive TUI"
+echo "   ./bin/backup-tui-go backup       # Run backup"
+echo "   ./bin/backup-tui-go --help       # Show all commands"
 echo ""
-echo "For help: ./bin/docker-backup-go --help"
 echo "========================================"

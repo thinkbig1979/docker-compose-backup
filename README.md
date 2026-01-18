@@ -189,17 +189,6 @@ MAIN MENU
 0 3 * * 0 /path/to/backup-tui-go sync -v >> /var/log/backup-sync.log 2>&1
 ```
 
-## Legacy Tools
-
-The following legacy tools are deprecated but still available:
-
-- `bin/docker-backup-go` - Stage 1 only
-- `bin/manage-dirlist-go` - Directory management only
-- `scripts/rclone_backup.sh` - Stage 2 only
-- `scripts/rclone_restore.sh` - Stage 3 only
-
-**Use `backup-tui-go` instead for all operations.**
-
 ---
 
 **Self-Contained Design**: All configuration and data files are kept within this directory for complete portability.
