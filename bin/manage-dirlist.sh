@@ -49,6 +49,9 @@ readonly EXIT_USER_CANCEL=3
 LOCK_FD=200
 HAS_LOCK=false
 
+# Track if save was successful (to preserve output)
+SAVE_SUCCESSFUL=false
+
 # Terminal cleanup function
 cleanup_terminal() {
     local exit_code=$?
@@ -58,8 +61,12 @@ cleanup_terminal() {
         release_dirlist_lock
     fi
 
-    # Clear dialog artifacts and restore terminal
-    clear 2>/dev/null || true
+    # Only clear dialog artifacts if save was NOT successful
+    # This preserves success/error messages for the user to see
+    if [[ "$SAVE_SUCCESSFUL" != "true" ]]; then
+        clear 2>/dev/null || true
+    fi
+
     # Reset terminal to normal state
     tput sgr0 2>/dev/null || true
     # Show cursor if it was hidden
@@ -529,6 +536,8 @@ save_dirlist() {
     local temp_dirlist
     temp_dirlist="$(mktemp)"
 
+    print_info "Target dirlist path: $DIRLIST_FILE"
+
     # Acquire lock before modifying dirlist
     if ! acquire_dirlist_lock 30; then
         rm -f "$temp_dirlist"
@@ -565,6 +574,9 @@ EOF
     if mv "$temp_dirlist" "$DIRLIST_FILE"; then
         # Set restrictive permissions
         chmod 600 "$DIRLIST_FILE" 2>/dev/null || true
+
+        # Mark save as successful so cleanup preserves output
+        SAVE_SUCCESSFUL=true
 
         print_success "Directory list updated successfully!"
         print_info "File saved: $DIRLIST_FILE"
