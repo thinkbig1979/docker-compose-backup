@@ -38,14 +38,14 @@ func (r *CommandResult) CombinedOutput() string {
 
 // CommandOptions configures command execution
 type CommandOptions struct {
-	Dir         string            // Working directory
-	Env         map[string]string // Environment variables to add
-	Timeout     time.Duration     // Command timeout (0 = no timeout)
-	Stdin       io.Reader         // Standard input
-	StreamOut   bool              // Stream stdout to os.Stdout
-	StreamErr   bool              // Stream stderr to os.Stderr
-	CaptureOut  bool              // Capture stdout (default true)
-	CaptureErr  bool              // Capture stderr (default true)
+	Dir        string            // Working directory
+	Env        map[string]string // Environment variables to add
+	Timeout    time.Duration     // Command timeout (0 = no timeout)
+	Stdin      io.Reader         // Standard input
+	StreamOut  bool              // Stream stdout to os.Stdout
+	StreamErr  bool              // Stream stderr to os.Stderr
+	CaptureOut bool              // Capture stdout (default true)
+	CaptureErr bool              // Capture stderr (default true)
 }
 
 // DefaultOptions returns default command options

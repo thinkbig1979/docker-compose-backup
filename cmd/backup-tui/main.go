@@ -24,10 +24,10 @@ const (
 
 // Exit codes
 const (
-	ExitSuccess     = 0
-	ExitConfigError = 1
-	ExitBackupError = 2
-	ExitSyncError   = 3
+	ExitSuccess      = 0
+	ExitConfigError  = 1
+	ExitBackupError  = 2
+	ExitSyncError    = 3
 	ExitRestoreError = 4
 )
 
