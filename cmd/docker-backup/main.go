@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -631,13 +632,21 @@ func (app *App) smartStopStack(dirName, dirPath string) error {
 		return nil
 	}
 
-	cmd := exec.Command("docker", "compose", "stop", "--timeout", strconv.Itoa(app.config.DockerTimeout))
+	// Use context timeout: docker timeout + 30 seconds buffer for command overhead
+	timeout := time.Duration(app.config.DockerTimeout+30) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "compose", "stop", "--timeout", strconv.Itoa(app.config.DockerTimeout))
 	cmd.Dir = dirPath
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		app.logWarn("Stop command returned error (may be timeout): %v", err)
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		app.logWarn("Stop command timed out after %v", timeout)
+	} else if err != nil {
+		app.logWarn("Stop command returned error: %v", err)
 	}
 
 	// Wait for containers to stop
@@ -670,12 +679,20 @@ func (app *App) smartStartStack(dirName, dirPath string) error {
 		return nil
 	}
 
-	cmd := exec.Command("docker", "compose", "start")
+	// Use context timeout for start command
+	timeout := time.Duration(app.config.DockerTimeout+30) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "compose", "start")
 	cmd.Dir = dirPath
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("start command timed out after %v", timeout)
+	} else if err != nil {
 		return fmt.Errorf("failed to start stack: %w", err)
 	}
 
@@ -908,7 +925,9 @@ func (app *App) cleanup() {
 		if app.stackStates[app.currentBackupDir] == "running" {
 			app.logWarn("Attempting to restart interrupted stack: %s", app.currentBackupDir)
 			dirPath := filepath.Join(app.config.BackupDir, app.currentBackupDir)
-			app.smartStartStack(app.currentBackupDir, dirPath)
+			if err := app.smartStartStack(app.currentBackupDir, dirPath); err != nil {
+				app.logError("Failed to restart stack during cleanup: %v", err)
+			}
 		}
 	}
 }
