@@ -102,7 +102,7 @@ func (r *RestoreService) prepareDirectory(targetDir string) error {
 }
 
 func (r *RestoreService) dryRunRestore(source, targetDir string) error {
-	util.LogInfo("[DRY RUN] Previewing restore operation...")
+	util.LogProgress("[DRY RUN] Previewing restore operation...")
 
 	args := []string{
 		"copy",

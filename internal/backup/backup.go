@@ -90,7 +90,7 @@ func (s *Service) Run() error {
 	util.LogHeader("Docker Stack Selective Sequential Backup Started")
 	util.LogInfo("PID: %d", os.Getpid())
 	util.LogInfo("Start time: %s", s.startTime.Format("2006-01-02 15:04:05"))
-	util.LogInfo("Dry run: %t", s.dryRun)
+	util.LogProgress("Dry run: %t", s.dryRun)
 
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
@@ -186,7 +186,7 @@ func (s *Service) scanDirectories() error {
 	}
 
 	total, enabled, disabled := s.dirlist.Count()
-	util.LogInfo("Total directories: %d (enabled: %d, disabled: %d)", total, enabled, disabled)
+	util.LogProgress("Total directories: %d (enabled: %d, disabled: %d)", total, enabled, disabled)
 
 	return nil
 }
@@ -208,7 +208,7 @@ func (s *Service) processBackups() error {
 		dirPath := filepath.Join(s.config.Docker.StacksDir, dirName)
 		s.docker.StoreInitialState(dirName, dirPath)
 		state := s.docker.GetStoredState(dirName)
-		util.LogInfo("Stack %s: initially %s", dirName, state)
+		util.LogProgress("Stack %s: initially %s", dirName, state)
 	}
 
 	// Process each directory

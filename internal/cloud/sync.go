@@ -54,7 +54,7 @@ func (s *SyncService) Sync() error {
 }
 
 func (s *SyncService) dryRunSync(destination string) error {
-	util.LogInfo("[DRY RUN] Previewing sync operation...")
+	util.LogProgress("[DRY RUN] Previewing sync operation...")
 
 	args := []string{
 		"sync",

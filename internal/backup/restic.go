@@ -106,7 +106,7 @@ func (r *ResticManager) Backup(dirPath, dirName string, hostname string) error {
 	util.LogProgress("Backing up directory: %s", dirName)
 
 	if r.dryRun {
-		util.LogInfo("[DRY RUN] Would backup: %s", dirName)
+		util.LogProgress("[DRY RUN] Would backup: %s", dirName)
 		return nil
 	}
 
@@ -152,10 +152,10 @@ func (r *ResticManager) Verify(dirName string) error {
 		return nil
 	}
 
-	util.LogInfo("Verifying backup: %s", dirName)
+	util.LogProgress("Verifying backup: %s", dirName)
 
 	if r.dryRun {
-		util.LogInfo("[DRY RUN] Would verify backup: %s", dirName)
+		util.LogProgress("[DRY RUN] Would verify backup: %s", dirName)
 		return nil
 	}
 
@@ -187,7 +187,7 @@ func (r *ResticManager) Verify(dirName string) error {
 		return fmt.Errorf("verification failed")
 	}
 
-	util.LogInfo("Backup verification passed: %s", dirName)
+	util.LogProgress("Backup verification passed: %s", dirName)
 	return nil
 }
 
@@ -197,10 +197,10 @@ func (r *ResticManager) ApplyRetention(dirName string, hostname string) error {
 		return nil
 	}
 
-	util.LogInfo("Applying retention policy: %s", dirName)
+	util.LogProgress("Applying retention policy: %s", dirName)
 
 	if r.dryRun {
-		util.LogInfo("[DRY RUN] Would apply retention: %s", dirName)
+		util.LogProgress("[DRY RUN] Would apply retention: %s", dirName)
 		return nil
 	}
 
@@ -247,7 +247,7 @@ func (r *ResticManager) ApplyRetention(dirName string, hostname string) error {
 		return fmt.Errorf("retention policy failed")
 	}
 
-	util.LogInfo("Retention policy applied: %s", dirName)
+	util.LogProgress("Retention policy applied: %s", dirName)
 	return nil
 }
 

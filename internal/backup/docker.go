@@ -94,14 +94,14 @@ func (d *DockerManager) SmartStop(name, dirPath string) error {
 	state := d.GetStoredState(name)
 
 	if state != StateRunning {
-		util.LogInfo("Skipping stop for stack (was %s): %s", state, name)
+		util.LogProgress("Skipping stop for stack (was %s): %s", state, name)
 		return nil
 	}
 
 	util.LogProgress("Stopping Docker stack: %s", name)
 
 	if d.dryRun {
-		util.LogInfo("[DRY RUN] Would stop stack: %s", name)
+		util.LogProgress("[DRY RUN] Would stop stack: %s", name)
 		return nil
 	}
 
@@ -132,7 +132,7 @@ func (d *DockerManager) SmartStop(name, dirPath string) error {
 	for i := 0; i < 3; i++ {
 		state, _ := d.CheckStackStatus(dirPath)
 		if state != StateRunning {
-			util.LogInfo("Successfully stopped stack: %s", name)
+			util.LogProgress("Successfully stopped stack: %s", name)
 			return nil
 		}
 		time.Sleep(3 * time.Second)
@@ -146,14 +146,14 @@ func (d *DockerManager) SmartStart(name, dirPath string) error {
 	state := d.GetStoredState(name)
 
 	if state != StateRunning {
-		util.LogInfo("Skipping restart for stack (was %s): %s", state, name)
+		util.LogProgress("Skipping restart for stack (was %s): %s", state, name)
 		return nil
 	}
 
 	util.LogProgress("Restarting Docker stack: %s", name)
 
 	if d.dryRun {
-		util.LogInfo("[DRY RUN] Would restart stack: %s", name)
+		util.LogProgress("[DRY RUN] Would restart stack: %s", name)
 		return nil
 	}
 
@@ -175,7 +175,7 @@ func (d *DockerManager) SmartStart(name, dirPath string) error {
 		return fmt.Errorf("failed to start stack: %w", err)
 	}
 
-	util.LogInfo("Successfully restarted stack: %s", name)
+	util.LogProgress("Successfully restarted stack: %s", name)
 	return nil
 }
 
@@ -184,7 +184,7 @@ func (d *DockerManager) ForceStart(name, dirPath string) error {
 	util.LogProgress("Force starting Docker stack: %s", name)
 
 	if d.dryRun {
-		util.LogInfo("[DRY RUN] Would force start stack: %s", name)
+		util.LogProgress("[DRY RUN] Would force start stack: %s", name)
 		return nil
 	}
 
