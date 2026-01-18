@@ -178,7 +178,7 @@ EXAMPLES:
     %s validate                 # Check config
 
 CONFIGURATION:
-    Default config location: config/backup.conf
+    Default config location: config/config.ini
     Override with -c flag or BACKUP_CONFIG environment variable
 
 `, Name, Version, Name, Name, Name, Name, Name, Name, Name, Name)
@@ -394,7 +394,7 @@ RETRIES=3
 
 	// Determine output path
 	cwd, _ := os.Getwd()
-	outputPath := filepath.Join(cwd, "config", "backup.conf.template")
+	outputPath := filepath.Join(cwd, "config", "config.ini.template")
 
 	// Create directory if needed
 	os.MkdirAll(filepath.Dir(outputPath), 0755)
@@ -405,7 +405,7 @@ RETRIES=3
 	}
 
 	fmt.Printf("Configuration template created: %s\n", outputPath)
-	fmt.Println("Copy to config/backup.conf and customize for your environment")
+	fmt.Println("Copy to config/config.ini and customize for your environment")
 }
 
 func boolStatus(ok bool) string {

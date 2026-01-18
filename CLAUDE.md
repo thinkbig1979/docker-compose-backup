@@ -31,9 +31,8 @@ backup script/
 │   ├── rclone_backup.sh         # Legacy (to deprecate)
 │   └── rclone_restore.sh        # Legacy (to deprecate)
 ├── config/
-│   ├── backup.conf              # Main configuration
-│   ├── backup.conf.template     # Config template
-│   └── rclone.conf.template     # Legacy (to merge into backup.conf)
+│   ├── config.ini               # Main configuration
+│   └── config.ini.template      # Config template
 ├── bin/
 │   └── backup-tui-go            # Built unified binary
 ├── logs/                        # Runtime logs
@@ -104,4 +103,3 @@ backup-tui-go validate           # Validate config
 - `bin/backup-tui.sh`
 - `scripts/rclone_backup.sh`
 - `scripts/rclone_restore.sh`
-- `config/rclone.conf.template`

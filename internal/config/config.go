@@ -371,7 +371,7 @@ func isInQuotes(s string, idx int) bool {
 	return inSingle || inDouble
 }
 
-// FindConfigFile searches for backup.conf in standard locations
+// FindConfigFile searches for config.ini in standard locations
 func FindConfigFile() (string, error) {
 	// Strategy 1: BACKUP_CONFIG environment variable
 	if envConfig := os.Getenv("BACKUP_CONFIG"); envConfig != "" {
@@ -383,7 +383,7 @@ func FindConfigFile() (string, error) {
 	// Strategy 2: Relative to executable
 	if execPath, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(execPath)
-		candidate := filepath.Join(execDir, "..", "config", "backup.conf")
+		candidate := filepath.Join(execDir, "..", "config", "config.ini")
 		if _, err := os.Stat(candidate); err == nil {
 			return filepath.Abs(candidate)
 		}
@@ -391,11 +391,11 @@ func FindConfigFile() (string, error) {
 
 	// Strategy 3: Current working directory
 	if cwd, err := os.Getwd(); err == nil {
-		candidate := filepath.Join(cwd, "config", "backup.conf")
+		candidate := filepath.Join(cwd, "config", "config.ini")
 		if _, err := os.Stat(candidate); err == nil {
 			return filepath.Abs(candidate)
 		}
 	}
 
-	return "", fmt.Errorf("backup.conf not found in any standard location")
+	return "", fmt.Errorf("config.ini not found in any standard location")
 }
