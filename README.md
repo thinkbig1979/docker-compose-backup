@@ -1,5 +1,7 @@
 # Docker Stack 3-Stage Backup System
 
+[![Built with Claude](https://img.shields.io/badge/Built%20with-Claude-blue)](https://claude.ai)
+
 A comprehensive 3-stage backup solution for Docker compose stacks using restic with cloud synchronization.
 
 ## Quick Start
