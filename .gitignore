@@ -10,3 +10,6 @@ cmd/docker-backup/docker-backup
 
 # Active config file (contains sensitive data)
 config/config.ini
+
+# Supporting documentation (session notes, specs)
+Supporting-Docs/
