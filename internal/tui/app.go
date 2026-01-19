@@ -520,8 +520,8 @@ func (m Model) handleOutputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // openFilePicker initializes and opens the file picker
 func (m Model) openFilePicker() (tea.Model, tea.Cmd) {
 	fp := filepicker.New()
-	fp.DirAllowed = true
-	fp.FileAllowed = true // Allow selecting files too, we validate for compose file
+	fp.DirAllowed = false // Don't select directories on Enter - let Enter navigate into them
+	fp.FileAllowed = false // We only want directory navigation, use 'a' key to add current dir
 	fp.ShowHidden = false
 	fp.ShowPermissions = false
 	fp.ShowSize = false
@@ -558,40 +558,30 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Cancel and go back to dirlist
 		m.filePickerActive = false
 		return m.changeScreen(ScreenDirlist)
+	case "a":
+		// Add the current directory as external path
+		currentDir := m.filepicker.CurrentDirectory
+		if dirlist.ValidateAbsolutePath(currentDir) {
+			if err := m.dirlist.AddExternal(currentDir); err != nil {
+				m.filePickerErr = err.Error()
+			} else {
+				m.dirlistModified = true
+				m.filePickerActive = false
+				m.refreshDirlistView()
+				return m.changeScreen(ScreenDirlist)
+			}
+		} else {
+			m.filePickerErr = "Current directory must contain a docker-compose.yml file"
+		}
+		return m, nil
 	}
 
-	// Let file picker handle navigation
+	// Let file picker handle navigation (Enter navigates into directories)
 	var cmd tea.Cmd
 	m.filepicker, cmd = m.filepicker.Update(msg)
 
-	// Check if something was selected
-	if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
-		// Check if it's a directory (for navigation) or validate for adding
-		info, err := os.Stat(path)
-		if err != nil {
-			m.filePickerErr = "Cannot access path: " + err.Error()
-			return m, cmd
-		}
-
-		if info.IsDir() {
-			// Validate the selected directory has a compose file
-			if dirlist.ValidateAbsolutePath(path) {
-				// Add the external path
-				if err := m.dirlist.AddExternal(path); err != nil {
-					m.filePickerErr = err.Error()
-				} else {
-					m.dirlistModified = true
-					m.filePickerActive = false
-					m.refreshDirlistView() // Refresh view without reloading from file
-					return m.changeScreen(ScreenDirlist)
-				}
-			} else {
-				m.filePickerErr = "Directory must contain a docker-compose.yml file"
-			}
-		} else {
-			m.filePickerErr = "Please select a directory, not a file"
-		}
-	}
+	// Clear any previous error when navigating
+	m.filePickerErr = ""
 
 	return m, cmd
 }
@@ -886,8 +876,8 @@ func (m Model) viewOutput() string {
 func (m Model) viewFilePicker() string {
 	title := TitleStyle.Render("Select External Directory")
 	currentDir := CyanStyle.Render("Current: " + m.filepicker.CurrentDirectory)
-	instructions := MutedStyle.Render("Navigate to a directory with a docker-compose.yml and press ENTER")
-	footer := Footer("↑/↓: Navigate | ENTER: Select/Enter Dir | ESC: Cancel | Q: Quit")
+	instructions := MutedStyle.Render("Navigate to a directory with docker-compose.yml, then press A to add it")
+	footer := Footer("↑/↓: Navigate | ENTER: Enter Dir | BACKSPACE: Go Up | A: Add Current Dir | ESC: Cancel")
 
 	var errMsg string
 	if m.filePickerErr != "" {
