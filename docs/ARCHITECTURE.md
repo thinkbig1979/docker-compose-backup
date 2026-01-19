@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Docker Stack 3-Stage Backup System implements a hybrid backup approach that combines the speed of local backups with the safety of cloud storage. All functionality is provided by a single unified Go binary: `backup-tui-go`.
+The Docker Stack 3-Stage Backup System implements a hybrid backup approach that combines the speed of local backups with the safety of cloud storage. All functionality is provided by a single unified Go binary: `backup-tui`.
 
 ## Architecture Diagram
 
@@ -15,7 +15,7 @@ Docker Stacks → Stage 1 → Stage 2 → Stage 3
                   backups    safety    recovery
 ```
 
-## Unified Binary: backup-tui-go
+## Unified Binary: backup-tui
 
 The entire backup system is managed by a single Go binary that provides:
 - Interactive TUI mode for menu-driven operations
@@ -23,27 +23,28 @@ The entire backup system is managed by a single Go binary that provides:
 - All three backup stages in one tool
 
 ```bash
-./bin/backup-tui-go              # Interactive TUI
-./bin/backup-tui-go backup       # Stage 1: Local backup
-./bin/backup-tui-go sync         # Stage 2: Cloud sync
-./bin/backup-tui-go restore      # Stage 3: Cloud restore
+./bin/backup-tui                 # Interactive TUI
+./bin/backup-tui backup          # Stage 1: Local backup
+./bin/backup-tui sync            # Stage 2: Cloud sync
+./bin/backup-tui restore         # Stage 3: Cloud restore
 ```
 
 ## Stage Details
 
 ### Stage 1: Local Restic Backup
-- **Command**: `backup-tui-go backup`
+- **Command**: `backup-tui backup`
 - **Technology**: restic backup engine
 - **Features**:
   - Selective directory processing via `dirlist`
-  - Sequential Docker stack management
+  - Sequential Docker stack management with `docker compose down/up -d`
   - Smart state tracking (only affects running stacks)
-  - Post-backup verification
+  - Defensive StateUnknown handling (restarts if state uncertain)
+  - Post-backup verification with retry logic
   - Retention policy enforcement
   - Dry-run mode for testing
 
 ### Stage 2: Cloud Synchronization
-- **Command**: `backup-tui-go sync`
+- **Command**: `backup-tui sync`
 - **Technology**: rclone cloud sync
 - **Features**:
   - Syncs entire restic repository to cloud
@@ -53,7 +54,7 @@ The entire backup system is managed by a single Go binary that provides:
   - Multiple cloud provider support
 
 ### Stage 3: Disaster Recovery
-- **Command**: `backup-tui-go restore [PATH]`
+- **Command**: `backup-tui restore [PATH]`
 - **Technology**: rclone cloud restore
 - **Features**:
   - Restores restic repository from cloud
@@ -96,11 +97,13 @@ internal/
 2. Backup Phase (Stage 1)
    ├── Store initial Docker stack states
    ├── For each enabled directory:
-   │   ├── Smart stop (only if running)
+   │   ├── Smart stop with `docker compose down` (only if running)
+   │   ├── Verify containers stopped (with retry)
    │   ├── Create restic backup with tags
    │   ├── Verify backup (optional)
    │   ├── Apply retention policy (optional)
-   │   └── Smart restart (only if was running)
+   │   ├── Smart restart with `docker compose up -d` (only if was running)
+   │   └── Verify containers started (with retry)
    └── Generate backup summary
 
 3. Cloud Sync Phase (Stage 2)
@@ -136,9 +139,51 @@ RCLONE_PATH=/backup/restic
 
 Legacy flat format is also supported for backwards compatibility.
 
+## Docker Container Management
+
+The backup system uses a robust approach to container lifecycle management:
+
+### Stop/Start Strategy: down/up -d
+
+Instead of `docker compose stop/start`, the system uses:
+- **Stop**: `docker compose down --timeout N` - Fully removes containers
+- **Start**: `docker compose up -d` - Recreates containers from compose file
+
+**Benefits**:
+- Cleaner container state (no orphaned containers)
+- More reliable restarts (fresh container creation)
+- Handles compose file changes between backup runs
+- Works correctly even if containers were in an inconsistent state
+
+### State Tracking
+
+The system tracks four container states:
+- **StateRunning**: Stack has running containers (will be stopped/restarted)
+- **StateStopped**: Stack has no running containers (skipped)
+- **StateNotFound**: No containers exist for stack (skipped)
+- **StateUnknown**: Unable to determine state (restarted defensively)
+
+The **defensive StateUnknown handling** ensures containers are restarted even when the initial state check fails, preventing accidental container outages.
+
+### Verification with Retry
+
+Both stop and start operations include verification loops:
+1. Execute the docker compose command
+2. Wait 2 seconds for containers to settle
+3. Check container status (up to 3 attempts with 3-second intervals)
+4. Report success or failure
+
+### Command Timeout with Process Group Kill
+
+External commands (docker, restic, rclone) run with configurable timeouts:
+- Commands are started in a **new process group** (`Setpgid: true`)
+- On timeout, the **entire process group is killed** (`SIGKILL -pgid`)
+- This ensures child processes (spawned by docker compose) are also terminated
+- Prevents hung processes from blocking the backup indefinitely
+
 ## Security Model
 
-- **Configuration Protection**: `backup.conf` has 0600 permissions
+- **Configuration Protection**: `config.ini` has 0600 permissions
 - **Password Handling**: Supports password file or command (avoids env vars)
 - **State Isolation**: Each backup operation is atomic
 - **Error Boundaries**: Failures in one directory don't affect others

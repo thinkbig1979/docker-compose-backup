@@ -2,37 +2,37 @@
 
 [![Built with Claude](https://img.shields.io/badge/Built%20with-Claude-blue)](https://claude.ai)
 
-A comprehensive 3-stage backup solution for Docker compose stacks using restic for local backups and rclone for cloud synchronization. The tool automatically stops running containers before backup to ensure data consistency, then restarts only those containers that were previously running. Supports backing up stacks from your main Docker directory as well as external paths anywhere on your filesystem.
+A comprehensive 3-stage backup solution for Docker compose stacks using restic for local backups and rclone for cloud synchronization. The tool uses `docker compose down/up -d` for robust container management, ensuring data consistency during backups. Only containers that were running before backup are restarted afterward. Supports backing up stacks from your main Docker directory as well as external paths anywhere on your filesystem.
 
 ## Quick Start
 
 ```bash
-# 1. Run installation
-./install.sh
+# 1. Build the binary
+go build -o bin/backup-tui ./cmd/backup-tui
 
 # 2. Configure (edit config/config.ini)
 cp config/config.ini.template config/config.ini
 nano config/config.ini
 
 # 3. Select directories for backup
-./bin/backup-tui-go              # Launch TUI
+./bin/backup-tui              # Launch TUI
 
 # 4. Run backup (dry-run first)
-./bin/backup-tui-go backup --dry-run -v
+./bin/backup-tui backup --dry-run -v
 
 # 5. Run actual backup
-./bin/backup-tui-go backup -v
+./bin/backup-tui backup -v
 
 # 6. (Optional) Cloud sync
-./bin/backup-tui-go sync         # Upload to cloud
-./bin/backup-tui-go restore      # Restore from cloud
+./bin/backup-tui sync         # Upload to cloud
+./bin/backup-tui restore      # Restore from cloud
 ```
 
 ## 3-Stage Architecture
 
 **Stage 1: Local Restic Backup** → **Stage 2: Cloud Sync** → **Stage 3: Disaster Recovery**
 
-All three stages are managed by a single unified binary: `backup-tui-go`
+All three stages are managed by a single unified binary: `backup-tui`
 
 ### Data Flow
 
@@ -53,28 +53,28 @@ All three stages are managed by a single unified binary: `backup-tui-go`
 └──────────────────────────────────────┴───────────────────────────┘
 ```
 
-- **Stage 1**: Stops Docker containers, backs up stack directories to local restic repository, restarts containers
+- **Stage 1**: Uses `docker compose down` to stop containers, backs up stack directories to local restic repository, uses `docker compose up -d` to restart containers
 - **Stage 2**: Syncs the entire restic repository to cloud storage (preserves deduplication and snapshots)
 - **Stage 3**: Restores the restic repository from cloud to a local path for disaster recovery
 
 ## Unified TUI Binary
 
-The `backup-tui-go` binary provides both an interactive TUI and headless CLI commands:
+The `backup-tui` binary provides both an interactive TUI and headless CLI commands:
 
 ```bash
 # Interactive TUI mode (default)
-./bin/backup-tui-go
+./bin/backup-tui
 
 # Headless CLI commands
-./bin/backup-tui-go backup              # Stage 1: Local backup
-./bin/backup-tui-go backup --dry-run    # Preview backup
-./bin/backup-tui-go sync                # Stage 2: Cloud sync
-./bin/backup-tui-go sync --dry-run      # Preview sync
-./bin/backup-tui-go restore [PATH]      # Stage 3: Restore from cloud
-./bin/backup-tui-go status              # Show system status
-./bin/backup-tui-go validate            # Validate configuration
-./bin/backup-tui-go list-backups        # List backup snapshots
-./bin/backup-tui-go health              # Run health diagnostics
+./bin/backup-tui backup              # Stage 1: Local backup
+./bin/backup-tui backup --dry-run    # Preview backup
+./bin/backup-tui sync                # Stage 2: Cloud sync
+./bin/backup-tui sync --dry-run      # Preview sync
+./bin/backup-tui restore [PATH]      # Stage 3: Restore from cloud
+./bin/backup-tui status              # Show system status
+./bin/backup-tui validate            # Validate configuration
+./bin/backup-tui list-backups        # List backup snapshots
+./bin/backup-tui health              # Run health diagnostics
 
 # Common flags
 -v, --verbose     Enable verbose output
@@ -87,7 +87,7 @@ The `backup-tui-go` binary provides both an interactive TUI and headless CLI com
 
 ```
 ├── bin/                       # Executables
-│   └── backup-tui-go          # Unified backup tool (Go binary)
+│   └── backup-tui          # Unified backup tool (Go binary)
 ├── cmd/
 │   └── backup-tui/            # Main entry point source
 ├── internal/                  # Go packages
@@ -150,7 +150,7 @@ TRANSFERS=4
 
 4. Validate configuration:
    ```bash
-   ./bin/backup-tui-go validate
+   ./bin/backup-tui validate
    ```
 
 ## Features
@@ -160,10 +160,14 @@ TRANSFERS=4
 - **Headless CLI** - Full scripting/cron support
 - **Selective Backup** - Choose which Docker stacks to backup
 - **External Paths** - Add Docker stacks from anywhere on your filesystem
-- **Smart Docker Management** - Only stops/starts running containers
+- **Robust Container Management** - Uses `docker compose down/up -d` for clean container lifecycle
+- **Smart State Tracking** - Only restarts containers that were running before backup
+- **Defensive StateUnknown Handling** - Restarts containers when state is uncertain
+- **Process Group Timeout** - Kills entire process tree on timeout (no hung processes)
+- **Verification with Retry** - Confirms containers stopped/started with automatic retries
 - **Retry Logic** - Automatic retries for cloud operations
 - **File Locking** - Prevents concurrent operations
-- **Signal Handling** - Graceful shutdown with cleanup
+- **Signal Handling** - Graceful shutdown with container recovery
 - **Dry Run Mode** - Preview operations before execution
 - **Comprehensive Logging** - Detailed logs to file and console
 
@@ -238,7 +242,7 @@ rclone ls backblaze:your-bucket-name
 ### Build from Source (optional)
 
 ```bash
-go build -o bin/backup-tui-go ./cmd/backup-tui/
+go build -o bin/backup-tui ./cmd/backup-tui/
 ```
 
 ## TUI Menu Structure
@@ -272,7 +276,7 @@ The tool automatically discovers Docker stacks in your `DOCKER_STACKS_DIR`. You 
 
 ### Adding External Paths
 
-1. Open the TUI: `./bin/backup-tui-go`
+1. Open the TUI: `./bin/backup-tui`
 2. Go to **Directory Management** (option 4)
 3. Press **X** to open the file picker
 4. Navigate to your Docker stack directory (must contain `docker-compose.yml`)
@@ -319,10 +323,10 @@ another-stack=false
 
 ```bash
 # Daily backup at 2 AM
-0 2 * * * /path/to/backup-tui-go backup -v >> /var/log/backup.log 2>&1
+0 2 * * * /path/to/backup-tui backup -v >> /var/log/backup.log 2>&1
 
 # Weekly cloud sync on Sundays at 3 AM
-0 3 * * 0 /path/to/backup-tui-go sync -v >> /var/log/backup-sync.log 2>&1
+0 3 * * 0 /path/to/backup-tui sync -v >> /var/log/backup-sync.log 2>&1
 ```
 
 ---
