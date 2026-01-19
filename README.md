@@ -2,7 +2,7 @@
 
 [![Built with Claude](https://img.shields.io/badge/Built%20with-Claude-blue)](https://claude.ai)
 
-A comprehensive 3-stage backup solution for Docker compose stacks using restic with cloud synchronization.
+A comprehensive 3-stage backup solution for Docker compose stacks using restic with cloud synchronization. Supports backing up stacks from your main Docker directory as well as external paths anywhere on your filesystem.
 
 ## Quick Start
 
@@ -158,9 +158,10 @@ TRANSFERS=4
 ## Features
 
 - **Unified Binary** - Single tool for all backup operations
-- **Interactive TUI** - Menu-driven interface with tview
+- **Interactive TUI** - Menu-driven interface with Bubbletea
 - **Headless CLI** - Full scripting/cron support
 - **Selective Backup** - Choose which Docker stacks to backup
+- **External Paths** - Add Docker stacks from anywhere on your filesystem
 - **Smart Docker Management** - Only stops/starts running containers
 - **Retry Logic** - Automatic retries for cloud operations
 - **File Locking** - Prevents concurrent operations
@@ -170,14 +171,68 @@ TRANSFERS=4
 
 ## Prerequisites
 
-```bash
-# Required
-sudo apt-get install restic docker.io docker-compose-v2
+### Required: Restic
 
-# Optional (for cloud sync - Stage 2 & 3)
+Restic is the backup engine that creates deduplicated, encrypted snapshots.
+
+```bash
+# Install restic
+sudo apt-get install restic
+
+# Initialize your restic repository (first time only)
+export RESTIC_PASSWORD="your-secure-password"
+restic init -r /path/to/your/restic-repo
+
+# Verify it works
+restic -r /path/to/your/restic-repo snapshots
+```
+
+**Important restic configuration:**
+- `RESTIC_REPOSITORY` - Path to your restic repo (local path, SFTP, S3, etc.)
+- `RESTIC_PASSWORD` - Repository encryption password (store securely!)
+- Alternatively use `RESTIC_PASSWORD_FILE` or `RESTIC_PASSWORD_COMMAND`
+
+### Required: Docker
+
+```bash
+sudo apt-get install docker.io docker-compose-v2
+```
+
+### Optional: Rclone (for cloud sync)
+
+Rclone enables Stage 2 (upload) and Stage 3 (restore) cloud operations.
+
+```bash
+# Install rclone
 sudo apt-get install rclone
 
-# Build from source (optional)
+# Configure a cloud remote (interactive wizard)
+rclone config
+
+# Example: Configure Backblaze B2
+# 1. Run: rclone config
+# 2. Choose 'n' for new remote
+# 3. Name it (e.g., 'backblaze')
+# 4. Choose provider (e.g., 'b2' for Backblaze)
+# 5. Enter your account ID and application key
+# 6. Accept defaults for remaining options
+
+# Verify your remote works
+rclone lsd backblaze:
+
+# Test connectivity to your backup bucket
+rclone ls backblaze:your-bucket-name
+```
+
+**Common rclone remotes:**
+- Backblaze B2: `rclone config` → type `b2`
+- AWS S3: `rclone config` → type `s3`
+- Google Drive: `rclone config` → type `drive`
+- SFTP: `rclone config` → type `sftp`
+
+### Build from Source (optional)
+
+```bash
 go build -o bin/backup-tui-go ./cmd/backup-tui/
 ```
 
@@ -197,11 +252,59 @@ MAIN MENU
 │   ├── Restore Repository
 │   └── Test Connectivity
 ├── 4. Directory Management
-│   └── Select/Toggle Directories
+│   ├── Toggle directories on/off
+│   ├── Add external paths (X key)
+│   └── Remove external paths (D key)
 ├── 5. Status & Logs
 ├── Q. Quick Backup (shortcut)
 ├── S. Quick Status (shortcut)
 └── 0. Exit
+```
+
+## Directory Management
+
+The tool automatically discovers Docker stacks in your `DOCKER_STACKS_DIR`. You can also add **external paths** - Docker compose stacks located anywhere on your filesystem.
+
+### Adding External Paths
+
+1. Open the TUI: `./bin/backup-tui-go`
+2. Go to **Directory Management** (option 4)
+3. Press **X** to open the file picker
+4. Navigate to your Docker stack directory (must contain `docker-compose.yml`)
+5. Press **A** to add the current directory
+
+**File picker controls:**
+- `↑/↓` - Navigate file list
+- `Enter` - Enter directory
+- `Backspace` - Go up a directory level
+- `A` - Add current directory as external path
+- `ESC` - Cancel
+
+### Managing Directories
+
+In the Directory Management screen:
+- `↑/↓` - Navigate list
+- `Enter/Space` - Toggle backup on/off
+- `S` - Save changes
+- `A` - Enable all
+- `N` - Disable all
+- `X` - Add external path
+- `D` - Remove external path (external paths only)
+
+External paths are marked with `[EXT]` in the directory list.
+
+### Dirlist File Format
+
+The `dirlist` file stores your backup selections:
+
+```ini
+# Discovered directories (relative to DOCKER_STACKS_DIR)
+my-stack=true
+another-stack=false
+
+# External directories (absolute paths)
+/home/user/projects/docker-app=true
+/opt/custom-stack=true
 ```
 
 ## Cron Example
