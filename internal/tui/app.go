@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -50,6 +52,11 @@ type Model struct {
 	dirlistDirs       []string
 	dirlistSelections map[string]bool
 	dirlistModified   bool
+
+	// File picker state
+	filepicker       filepicker.Model
+	filePickerActive bool
+	filePickerErr    string
 
 	// Output view state
 	outputTitle    string
@@ -249,6 +256,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDirlistKey(msg)
 	case ScreenOutput:
 		return m.handleOutputKey(msg)
+	case ScreenFilePicker:
+		return m.handleFilePickerKey(msg)
 	}
 
 	return m, nil
@@ -468,6 +477,21 @@ func (m Model) handleDirlistKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.dirlistSelections[dir] = false
 		}
 		m.dirlistModified = true
+	case "x", "X":
+		// Open file picker to add external path
+		return m.openFilePicker()
+	case "d", "D":
+		// Remove external entry (only if current entry is external)
+		if len(m.dirlistDirs) > 0 {
+			dir := m.dirlistDirs[m.dirlistCursor]
+			entry := m.dirlist.GetEntry(dir)
+			if entry != nil && entry.IsExternal {
+				if err := m.dirlist.RemoveExternal(dir); err == nil {
+					m.dirlistModified = true
+					m.refreshDirlistView() // Refresh view without reloading from file
+				}
+			}
+		}
 	}
 
 	return m, nil
@@ -493,6 +517,85 @@ func (m Model) handleOutputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// openFilePicker initializes and opens the file picker
+func (m Model) openFilePicker() (tea.Model, tea.Cmd) {
+	fp := filepicker.New()
+	fp.DirAllowed = true
+	fp.FileAllowed = true // Allow selecting files too, we validate for compose file
+	fp.ShowHidden = false
+	fp.ShowPermissions = false
+	fp.ShowSize = false
+
+	// Start from user's home directory or fall back to /opt
+	startDir, err := os.UserHomeDir()
+	if err != nil {
+		startDir = "/opt"
+	}
+	fp.CurrentDirectory = startDir
+
+	height := m.height - 6
+	if height < 5 {
+		height = 5
+	}
+	fp.SetHeight(height)
+
+	m.filepicker = fp
+	m.filePickerActive = true
+	m.filePickerErr = ""
+	m.prevScreen = m.screen
+	m.screen = ScreenFilePicker
+
+	return m, m.filepicker.Init()
+}
+
+// handleFilePickerKey handles keys on the file picker screen
+func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q":
+		m.quitting = true
+		return m, tea.Quit
+	case keyEsc:
+		// Cancel and go back to dirlist
+		m.filePickerActive = false
+		return m.changeScreen(ScreenDirlist)
+	}
+
+	// Let file picker handle navigation
+	var cmd tea.Cmd
+	m.filepicker, cmd = m.filepicker.Update(msg)
+
+	// Check if something was selected
+	if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
+		// Check if it's a directory (for navigation) or validate for adding
+		info, err := os.Stat(path)
+		if err != nil {
+			m.filePickerErr = "Cannot access path: " + err.Error()
+			return m, cmd
+		}
+
+		if info.IsDir() {
+			// Validate the selected directory has a compose file
+			if dirlist.ValidateAbsolutePath(path) {
+				// Add the external path
+				if err := m.dirlist.AddExternal(path); err != nil {
+					m.filePickerErr = err.Error()
+				} else {
+					m.dirlistModified = true
+					m.filePickerActive = false
+					m.refreshDirlistView() // Refresh view without reloading from file
+					return m.changeScreen(ScreenDirlist)
+				}
+			} else {
+				m.filePickerErr = "Directory must contain a docker-compose.yml file"
+			}
+		} else {
+			m.filePickerErr = "Please select a directory, not a file"
+		}
+	}
+
+	return m, cmd
+}
+
 // updateActiveScreen updates the active screen's model
 func (m Model) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -508,6 +611,8 @@ func (m Model) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.restoreMenu, cmd = m.restoreMenu.Update(msg)
 	case ScreenStatus:
 		m.statusMenu, cmd = m.statusMenu.Update(msg)
+	case ScreenFilePicker:
+		m.filepicker, cmd = m.filepicker.Update(msg)
 	}
 
 	return m, cmd
@@ -526,19 +631,30 @@ func (m Model) changeScreen(screen Screen) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// initDirlist initializes the dirlist state
+// initDirlist initializes the dirlist state from file
 func (m *Model) initDirlist() {
 	_ = m.dirlist.Load()
 	_, _, _ = m.dirlist.Sync()
 
+	m.refreshDirlistView()
+	m.dirlistModified = false
+}
+
+// refreshDirlistView updates the TUI state from in-memory dirlist (without reloading from file)
+func (m *Model) refreshDirlistView() {
 	allDirs := m.dirlist.GetAll()
 	m.dirlistDirs = m.dirlist.SortedDirs()
 	m.dirlistSelections = make(map[string]bool)
 	for dir, enabled := range allDirs {
 		m.dirlistSelections[dir] = enabled
 	}
-	m.dirlistCursor = 0
-	m.dirlistModified = false
+	// Keep cursor in bounds
+	if m.dirlistCursor >= len(m.dirlistDirs) {
+		m.dirlistCursor = len(m.dirlistDirs) - 1
+	}
+	if m.dirlistCursor < 0 {
+		m.dirlistCursor = 0
+	}
 }
 
 // updateMenuSizes updates menu dimensions based on window size
@@ -581,6 +697,8 @@ func (m Model) View() string {
 		return m.viewDirlist()
 	case ScreenOutput:
 		return m.viewOutput()
+	case ScreenFilePicker:
+		return m.viewFilePicker()
 	}
 
 	return ""
@@ -668,10 +786,11 @@ func (m Model) viewStatusMenu() string {
 // viewDirlist renders the directory list screen
 func (m Model) viewDirlist() string {
 	title := TitleStyle.Render("Directory Selection")
-	instructions := MutedStyle.Render("↑/↓: Navigate  ENTER/SPACE: Toggle  S: Save  A: All On  N: All Off  ESC: Back  Q: Quit")
-	legend := fmt.Sprintf("%s = Will be backed up    %s = Will be skipped",
+	instructions := MutedStyle.Render("↑/↓: Navigate  ENTER/SPACE: Toggle  S: Save  A: All On  N: All Off  X: Add External  D: Remove External  ESC: Back  Q: Quit")
+	legend := fmt.Sprintf("%s = Will be backed up    %s = Will be skipped    %s = External path",
 		EnabledStyle.Render("✓ BACKUP"),
-		DisabledStyle.Render("✗ SKIP"))
+		DisabledStyle.Render("✗ SKIP"),
+		CyanStyle.Render("[EXT]"))
 
 	var rows strings.Builder
 	for i, dir := range m.dirlistDirs {
@@ -681,7 +800,20 @@ func (m Model) viewDirlist() string {
 		}
 
 		status := StatusIcon(m.dirlistSelections[dir])
-		line := fmt.Sprintf("%s%s  %s", cursor, status, dir)
+
+		// Check if this is an external entry
+		entry := m.dirlist.GetEntry(dir)
+		extMarker := ""
+		displayName := dir
+		if entry != nil && entry.IsExternal {
+			extMarker = CyanStyle.Render("[EXT] ")
+			// Truncate long paths for display
+			if len(dir) > 50 {
+				displayName = "..." + dir[len(dir)-47:]
+			}
+		}
+
+		line := fmt.Sprintf("%s%s  %s%s", cursor, status, extMarker, displayName)
 		if i == m.dirlistCursor {
 			line = lipgloss.NewStyle().Bold(true).Render(line)
 		}
@@ -745,6 +877,31 @@ func (m Model) viewOutput() string {
 		title,
 		"",
 		m.outputViewport.View(),
+		"",
+		footer,
+	)
+}
+
+// viewFilePicker renders the file picker screen
+func (m Model) viewFilePicker() string {
+	title := TitleStyle.Render("Select External Directory")
+	currentDir := CyanStyle.Render("Current: " + m.filepicker.CurrentDirectory)
+	instructions := MutedStyle.Render("Navigate to a directory with a docker-compose.yml and press ENTER")
+	footer := Footer("↑/↓: Navigate | ENTER: Select/Enter Dir | ESC: Cancel | Q: Quit")
+
+	var errMsg string
+	if m.filePickerErr != "" {
+		errMsg = "\n" + ErrorStyle.Render("Error: "+m.filePickerErr)
+	}
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		currentDir,
+		instructions,
+		"",
+		m.filepicker.View(),
+		errMsg,
 		"",
 		footer,
 	)

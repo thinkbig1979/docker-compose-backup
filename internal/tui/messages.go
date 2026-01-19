@@ -14,6 +14,7 @@ const (
 	ScreenStatus
 	ScreenDirlist
 	ScreenOutput
+	ScreenFilePicker
 )
 
 // ScreenChangeMsg is sent when navigating between screens

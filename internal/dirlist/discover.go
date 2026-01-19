@@ -95,6 +95,28 @@ func ValidateDirName(name string) bool {
 	return true
 }
 
+// ValidateAbsolutePath validates an external absolute path
+// Returns true if the path is absolute, exists, is a directory, and contains a compose file
+func ValidateAbsolutePath(absPath string) bool {
+	// Must be an absolute path
+	if !filepath.IsAbs(absPath) {
+		return false
+	}
+
+	// Check if path exists and is a directory
+	info, err := os.Stat(absPath)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+
+	// Must have a compose file
+	if !HasComposeFile(absPath) {
+		return false
+	}
+
+	return true
+}
+
 // FilterValidDirs returns only valid directory names from the input
 func FilterValidDirs(dirs []string) []string {
 	var valid []string
