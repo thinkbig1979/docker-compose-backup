@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -94,14 +95,18 @@ func RunCommand(name string, args []string, opts CommandOptions) (*CommandResult
 
 	// Create context with timeout if specified
 	ctx := context.Background()
+	var cancel context.CancelFunc
 	if opts.Timeout > 0 {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
 		defer cancel()
 	}
 
-	// Create and configure command
-	cmd := exec.CommandContext(ctx, name, args...)
+	// Create command (not using CommandContext - we'll handle timeout manually for process group support)
+	cmd := exec.Command(name, args...)
+
+	// Create a new process group so we can kill all child processes on timeout
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	if opts.Dir != "" {
 		cmd.Dir = opts.Dir
 	}
@@ -124,18 +129,47 @@ func RunCommand(name string, args []string, opts CommandOptions) (*CommandResult
 		cmd.Stderr = io.MultiWriter(stderrWriters...)
 	}
 
-	// Run command
-	err := cmd.Run()
+	// Start command
+	if err := cmd.Start(); err != nil {
+		result.Duration = time.Since(start)
+		result.ExitCode = -1
+		return result, fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Wait for command completion or timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	var err error
+	select {
+	case <-ctx.Done():
+		// Timeout occurred - kill the entire process group
+		if cmd.Process != nil {
+			// Kill process group (negative PID kills all processes in the group)
+			pgid, pgidErr := syscall.Getpgid(cmd.Process.Pid)
+			if pgidErr == nil {
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			} else {
+				// Fallback to killing just the process
+				_ = cmd.Process.Kill()
+			}
+		}
+		<-done // Wait for the process to actually exit
+		result.TimedOut = true
+		result.ExitCode = -1
+		result.Duration = time.Since(start)
+		result.Stdout = strings.TrimSpace(stdout.String())
+		result.Stderr = strings.TrimSpace(stderr.String())
+		return result, fmt.Errorf("command timed out after %v", opts.Timeout)
+	case err = <-done:
+		// Command completed normally
+	}
+
 	result.Duration = time.Since(start)
 	result.Stdout = strings.TrimSpace(stdout.String())
 	result.Stderr = strings.TrimSpace(stderr.String())
-
-	// Check for timeout
-	if ctx.Err() == context.DeadlineExceeded {
-		result.TimedOut = true
-		result.ExitCode = -1
-		return result, fmt.Errorf("command timed out after %v", opts.Timeout)
-	}
 
 	// Get exit code
 	if err != nil {
