@@ -17,18 +17,28 @@ func TestExternalPaths(t *testing.T) {
 
 	// Create mock stacks dir
 	stacksDir := filepath.Join(tmpDir, "stacks")
-	os.MkdirAll(filepath.Join(stacksDir, "stack1"), 0755)
-	os.WriteFile(filepath.Join(stacksDir, "stack1", "docker-compose.yml"), []byte("version: '3'\n"), 0644)
+	if err := os.MkdirAll(filepath.Join(stacksDir, "stack1"), 0o755); err != nil {
+		t.Fatalf("Cannot create stacks dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stacksDir, "stack1", "docker-compose.yml"), []byte("version: '3'\n"), 0o600); err != nil {
+		t.Fatalf("Cannot write compose file: %v", err)
+	}
 
 	// Create external stack
 	externalDir := filepath.Join(tmpDir, "external-stack")
-	os.MkdirAll(externalDir, 0755)
-	os.WriteFile(filepath.Join(externalDir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
+	if err := os.MkdirAll(externalDir, 0o755); err != nil {
+		t.Fatalf("Cannot create external dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(externalDir, "docker-compose.yml"), []byte("version: '3'\n"), 0o600); err != nil {
+		t.Fatalf("Cannot write external compose file: %v", err)
+	}
 
 	// Create dirlist file
 	dirlistPath := filepath.Join(tmpDir, "dirlist")
 	lockDir := filepath.Join(tmpDir, "locks")
-	os.MkdirAll(lockDir, 0755)
+	if err := os.MkdirAll(lockDir, 0o755); err != nil {
+		t.Fatalf("Cannot create lock dir: %v", err)
+	}
 
 	// Test 1: Create manager and sync
 	t.Run("SyncDiscoveredDirectories", func(t *testing.T) {
@@ -48,8 +58,12 @@ func TestExternalPaths(t *testing.T) {
 	// Test 2: Add external path
 	t.Run("AddExternalPath", func(t *testing.T) {
 		mgr := NewManager(dirlistPath, lockDir, stacksDir)
-		mgr.Load()
-		mgr.Sync()
+		if err := mgr.Load(); err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+		if _, _, err := mgr.Sync(); err != nil {
+			t.Fatalf("Sync error: %v", err)
+		}
 
 		if err := mgr.AddExternal(externalDir); err != nil {
 			t.Fatalf("AddExternal error: %v", err)
@@ -63,9 +77,15 @@ func TestExternalPaths(t *testing.T) {
 	// Test 3: GetFullPath
 	t.Run("GetFullPath", func(t *testing.T) {
 		mgr := NewManager(dirlistPath, lockDir, stacksDir)
-		mgr.Load()
-		mgr.Sync()
-		mgr.AddExternal(externalDir)
+		if err := mgr.Load(); err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+		if _, _, err := mgr.Sync(); err != nil {
+			t.Fatalf("Sync error: %v", err)
+		}
+		if err := mgr.AddExternal(externalDir); err != nil {
+			t.Fatalf("AddExternal error: %v", err)
+		}
 
 		discoveredPath := mgr.GetFullPath("stack1")
 		expectedDiscovered := filepath.Join(stacksDir, "stack1")
@@ -81,9 +101,15 @@ func TestExternalPaths(t *testing.T) {
 	// Test 4: Save and reload
 	t.Run("SaveAndReload", func(t *testing.T) {
 		mgr := NewManager(dirlistPath, lockDir, stacksDir)
-		mgr.Load()
-		mgr.Sync()
-		mgr.AddExternal(externalDir)
+		if err := mgr.Load(); err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+		if _, _, err := mgr.Sync(); err != nil {
+			t.Fatalf("Sync error: %v", err)
+		}
+		if err := mgr.AddExternal(externalDir); err != nil {
+			t.Fatalf("AddExternal error: %v", err)
+		}
 		mgr.Set("stack1", true)
 		mgr.Set(externalDir, true)
 		if err := mgr.Save(); err != nil {
@@ -113,7 +139,9 @@ func TestExternalPaths(t *testing.T) {
 	// Test 5: Sync preserves external entries
 	t.Run("SyncPreservesExternal", func(t *testing.T) {
 		mgr := NewManager(dirlistPath, lockDir, stacksDir)
-		mgr.Load()
+		if err := mgr.Load(); err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
 
 		_, removed, err := mgr.Sync()
 		if err != nil {
@@ -134,7 +162,9 @@ func TestExternalPaths(t *testing.T) {
 	// Test 6: Remove external
 	t.Run("RemoveExternal", func(t *testing.T) {
 		mgr := NewManager(dirlistPath, lockDir, stacksDir)
-		mgr.Load()
+		if err := mgr.Load(); err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
 
 		err := mgr.RemoveExternal("stack1")
 		if err == nil {
@@ -162,7 +192,9 @@ func TestExternalPaths(t *testing.T) {
 		}
 		// Create dir without compose file
 		noComposeDir := filepath.Join(tmpDir, "no-compose")
-		os.MkdirAll(noComposeDir, 0755)
+		if err := os.MkdirAll(noComposeDir, 0o755); err != nil {
+			t.Fatalf("Cannot create no-compose dir: %v", err)
+		}
 		if ValidateAbsolutePath(noComposeDir) {
 			t.Fatalf("Dir without compose file accepted")
 		}
@@ -171,14 +203,22 @@ func TestExternalPaths(t *testing.T) {
 	// Test 8: Dirlist file format
 	t.Run("DirlistFileFormat", func(t *testing.T) {
 		// Reset and create fresh
-		os.Remove(dirlistPath)
+		_ = os.Remove(dirlistPath) // Ignore error if file doesn't exist
 		mgr := NewManager(dirlistPath, lockDir, stacksDir)
-		mgr.Load()
-		mgr.Sync()
-		mgr.AddExternal(externalDir)
+		if err := mgr.Load(); err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+		if _, _, err := mgr.Sync(); err != nil {
+			t.Fatalf("Sync error: %v", err)
+		}
+		if err := mgr.AddExternal(externalDir); err != nil {
+			t.Fatalf("AddExternal error: %v", err)
+		}
 		mgr.Set("stack1", true)
 		mgr.Set(externalDir, false)
-		mgr.Save()
+		if err := mgr.Save(); err != nil {
+			t.Fatalf("Save error: %v", err)
+		}
 
 		// Read file and check format
 		content, err := os.ReadFile(dirlistPath)
