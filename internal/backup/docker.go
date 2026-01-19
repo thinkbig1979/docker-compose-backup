@@ -116,41 +116,50 @@ func (d *DockerManager) SmartStop(name, dirPath string) error {
 	}
 
 	result, err := util.RunCommand("docker", []string{
-		"compose", "stop", "--timeout", fmt.Sprintf("%d", int(d.timeout.Seconds())),
+		"compose", "down", "--timeout", fmt.Sprintf("%d", int(d.timeout.Seconds())),
 	}, opts)
 
 	if result.TimedOut {
-		util.LogWarn("Stop command timed out after %v", timeout)
+		util.LogWarn("Down command timed out after %v", timeout)
 	} else if err != nil {
-		util.LogWarn("Stop command returned error: %v", err)
+		util.LogWarn("Down command returned error: %v", err)
 	}
 
 	// Wait for containers to stop
 	time.Sleep(2 * time.Second)
 
-	// Verify stopped
+	// Verify stopped - after down, containers are removed so check for StateStopped or StateNotFound
 	for i := 0; i < 3; i++ {
 		state, _ := d.CheckStackStatus(dirPath)
-		if state != StateRunning {
+		if state == StateStopped || state == StateNotFound {
 			util.LogProgress("Successfully stopped stack: %s", name)
 			return nil
 		}
-		time.Sleep(3 * time.Second)
+		if i < 2 {
+			util.LogProgress("Waiting for stack to stop: %s (attempt %d/3)", name, i+1)
+			time.Sleep(3 * time.Second)
+		}
 	}
 
-	return fmt.Errorf("failed to stop stack: containers still running")
+	return fmt.Errorf("failed to stop stack: containers still running after down")
 }
 
 // SmartStart starts a stack only if it was initially running
 func (d *DockerManager) SmartStart(name, dirPath string) error {
 	state := d.GetStoredState(name)
 
-	if state != StateRunning {
+	// Skip restart for stacks that were explicitly stopped or not found
+	if state == StateStopped || state == StateNotFound {
 		util.LogProgress("Skipping restart for stack (was %s): %s", state, name)
 		return nil
 	}
 
-	util.LogProgress("Restarting Docker stack: %s", name)
+	// Restart defensively if state was unknown
+	if state == StateUnknown {
+		util.LogWarn("State was unknown for %s, restarting defensively", name)
+	} else {
+		util.LogProgress("Restarting Docker stack: %s", name)
+	}
 
 	if d.dryRun {
 		util.LogProgress("[DRY RUN] Would restart stack: %s", name)
@@ -166,17 +175,32 @@ func (d *DockerManager) SmartStart(name, dirPath string) error {
 		OutputWriter: d.outputWriter,
 	}
 
-	result, err := util.RunCommand("docker", []string{"compose", "start"}, opts)
+	result, err := util.RunCommand("docker", []string{"compose", "up", "-d"}, opts)
 
 	if result.TimedOut {
-		return fmt.Errorf("start command timed out after %v", timeout)
+		return fmt.Errorf("up command timed out after %v", timeout)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to start stack: %w", err)
 	}
 
-	util.LogProgress("Successfully restarted stack: %s", name)
-	return nil
+	// Wait for containers to start
+	time.Sleep(2 * time.Second)
+
+	// Verify started
+	for i := 0; i < 3; i++ {
+		currentState, _ := d.CheckStackStatus(dirPath)
+		if currentState == StateRunning {
+			util.LogProgress("Successfully restarted stack: %s", name)
+			return nil
+		}
+		if i < 2 {
+			util.LogProgress("Waiting for stack to start: %s (attempt %d/3)", name, i+1)
+			time.Sleep(3 * time.Second)
+		}
+	}
+
+	return fmt.Errorf("failed to start stack: containers not running after up -d")
 }
 
 // ForceStart unconditionally starts a stack (for recovery)
@@ -196,7 +220,7 @@ func (d *DockerManager) ForceStart(name, dirPath string) error {
 		OutputWriter: d.outputWriter,
 	}
 
-	_, err := util.RunCommand("docker", []string{"compose", "start"}, opts)
+	_, err := util.RunCommand("docker", []string{"compose", "up", "-d"}, opts)
 	return err
 }
 

@@ -306,8 +306,10 @@ func (s *Service) cleanup() {
 
 	// If interrupted during backup, try to restart stack
 	if s.backupInProgress && s.currentDir != "" {
-		if s.docker.GetStoredState(s.currentDir) == StateRunning {
-			util.LogWarn("Attempting to restart interrupted stack: %s", s.currentDir)
+		storedState := s.docker.GetStoredState(s.currentDir)
+		// Restart if stack was running or if state was unknown (defensive approach)
+		if storedState == StateRunning || storedState == StateUnknown {
+			util.LogWarn("Attempting to restart interrupted stack: %s (was %s)", s.currentDir, storedState)
 			dirPath := s.dirlist.GetFullPath(s.currentDir)
 			if dirPath != "" {
 				if err := s.docker.ForceStart(s.currentDir, dirPath); err != nil {
