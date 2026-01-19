@@ -2,7 +2,7 @@
 
 [![Built with Claude](https://img.shields.io/badge/Built%20with-Claude-blue)](https://claude.ai)
 
-A comprehensive 3-stage backup solution for Docker compose stacks using restic with cloud synchronization. Supports backing up stacks from your main Docker directory as well as external paths anywhere on your filesystem.
+A comprehensive 3-stage backup solution for Docker compose stacks using restic for local backups and rclone for cloud synchronization. The tool automatically stops running containers before backup to ensure data consistency, then restarts only those containers that were previously running. Supports backing up stacks from your main Docker directory as well as external paths anywhere on your filesystem.
 
 ## Quick Start
 
