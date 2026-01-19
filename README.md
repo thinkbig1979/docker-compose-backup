@@ -329,6 +329,13 @@ another-stack=false
 0 3 * * 0 /path/to/backup-tui sync -v >> /var/log/backup-sync.log 2>&1
 ```
 
+## Documentation
+
+For detailed reference, see:
+- **[Configuration Guide](docs/CONFIGURATION.md)** - All config options, password methods, example configs
+- **[Usage Guide](docs/USAGE.md)** - CLI commands, workflows, troubleshooting
+- **[Architecture](docs/ARCHITECTURE.md)** - Technical internals, container management, security model
+
 ---
 
 **Self-Contained Design**: All configuration and data files are kept within this directory for complete portability.
