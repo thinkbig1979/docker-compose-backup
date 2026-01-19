@@ -427,18 +427,29 @@ func (m Model) viewLogs() (tea.Model, tea.Cmd) {
 		output.WriteString(CyanStyle.Render(fmt.Sprintf("Showing last %d lines:", len(lines)-start)) + "\n\n")
 
 		for _, line := range lines[start:] {
-			if strings.Contains(line, "[ERROR]") {
+			switch {
+			case strings.Contains(line, "[ERROR]"):
 				output.WriteString(ErrorStyle.Render(line) + "\n")
-			} else if strings.Contains(line, "[WARN]") {
+			case strings.Contains(line, "[WARN]"):
 				output.WriteString(WarningStyle.Render(line) + "\n")
-			} else if strings.Contains(line, "[SUCCESS]") {
+			case strings.Contains(line, "[SUCCESS]"):
 				output.WriteString(SuccessStyle.Render(line) + "\n")
-			} else {
+			default:
 				output.WriteString(line + "\n")
 			}
 		}
 
 		return CommandOutputMsg{Output: output.String()}
+	}
+}
+
+// writeHealthCheckResult writes a health check result line
+func writeHealthCheckResult(output *strings.Builder, label string, ok bool, successMsg, errorMsg string) {
+	output.WriteString(CyanStyle.Render(label + ": "))
+	if ok {
+		output.WriteString(SuccessStyle.Render(successMsg) + "\n")
+	} else {
+		output.WriteString(ErrorStyle.Render(errorMsg) + "\n")
 	}
 }
 
@@ -448,57 +459,29 @@ func (m Model) runHealthCheck() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg {
 		var output strings.Builder
 
-		// Check Docker
-		output.WriteString(CyanStyle.Render("Docker Compose: "))
-		if backup.DockerComposeAvailable() {
-			output.WriteString(SuccessStyle.Render("OK") + "\n")
-		} else {
-			output.WriteString(ErrorStyle.Render("NOT AVAILABLE") + "\n")
-		}
-
-		// Check Restic
-		output.WriteString(CyanStyle.Render("Restic: "))
-		if backup.ResticAvailable() {
-			output.WriteString(SuccessStyle.Render("OK") + "\n")
-		} else {
-			output.WriteString(ErrorStyle.Render("NOT AVAILABLE") + "\n")
-		}
-
-		// Check Rclone
-		output.WriteString(CyanStyle.Render("Rclone: "))
-		if cloud.RcloneAvailable() {
-			output.WriteString(SuccessStyle.Render("OK") + "\n")
-		} else {
-			output.WriteString(ErrorStyle.Render("NOT AVAILABLE") + "\n")
-		}
+		// Check tool availability
+		writeHealthCheckResult(&output, "Docker Compose", backup.DockerComposeAvailable(), "OK", "NOT AVAILABLE")
+		writeHealthCheckResult(&output, "Restic", backup.ResticAvailable(), "OK", "NOT AVAILABLE")
+		writeHealthCheckResult(&output, "Rclone", cloud.RcloneAvailable(), "OK", "NOT AVAILABLE")
 
 		output.WriteString("\n")
 
 		// Check repository
-		output.WriteString(CyanStyle.Render("Restic Repository: "))
 		restic := backup.NewResticManager(&m.config.LocalBackup, false, nil)
-		if err := restic.CheckRepository(); err != nil {
-			output.WriteString(ErrorStyle.Render(fmt.Sprintf("ERROR: %v", err)) + "\n")
-		} else {
-			output.WriteString(SuccessStyle.Render("OK") + "\n")
-		}
+		repoErr := restic.CheckRepository()
+		writeHealthCheckResult(&output, "Restic Repository", repoErr == nil, "OK", fmt.Sprintf("ERROR: %v", repoErr))
 
 		// Check stacks directory
-		output.WriteString(CyanStyle.Render("Stacks Directory: "))
-		if info, err := os.Stat(m.config.Docker.StacksDir); err == nil && info.IsDir() {
-			output.WriteString(SuccessStyle.Render(fmt.Sprintf("OK (%s)", m.config.Docker.StacksDir)) + "\n")
-		} else {
-			output.WriteString(ErrorStyle.Render("NOT FOUND") + "\n")
-		}
+		info, statErr := os.Stat(m.config.Docker.StacksDir)
+		stacksOK := statErr == nil && info.IsDir()
+		writeHealthCheckResult(&output, "Stacks Directory", stacksOK,
+			fmt.Sprintf("OK (%s)", m.config.Docker.StacksDir), "NOT FOUND")
 
 		// Check cloud remote (if configured)
 		if m.config.CloudSync.Remote != "" {
-			output.WriteString(CyanStyle.Render("Cloud Remote: "))
-			if err := cloud.ValidateRemote(m.config.CloudSync.Remote); err != nil {
-				output.WriteString(ErrorStyle.Render(fmt.Sprintf("ERROR: %v", err)) + "\n")
-			} else {
-				output.WriteString(SuccessStyle.Render(fmt.Sprintf("OK (%s)", m.config.CloudSync.Remote)) + "\n")
-			}
+			remoteErr := cloud.ValidateRemote(m.config.CloudSync.Remote)
+			writeHealthCheckResult(&output, "Cloud Remote", remoteErr == nil,
+				fmt.Sprintf("OK (%s)", m.config.CloudSync.Remote), fmt.Sprintf("ERROR: %v", remoteErr))
 		}
 
 		output.WriteString("\n")

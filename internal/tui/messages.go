@@ -16,6 +16,7 @@ const (
 	ScreenOutput
 	ScreenFilePicker
 	ScreenSnapshots
+	ScreenRestic
 )
 
 // ScreenChangeMsg is sent when navigating between screens

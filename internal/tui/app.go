@@ -58,6 +58,7 @@ type Model struct {
 	syncMenu    list.Model
 	restoreMenu list.Model
 	statusMenu  list.Model
+	resticMenu  list.Model
 
 	// Dirlist state
 	dirlistCursor     int
@@ -78,6 +79,7 @@ type Model struct {
 	snapshotErr      string
 	snapshotViewport viewport.Model
 	snapshotVpReady  bool
+	snapshotYOffset  int // Desired scroll offset, persists across renders
 
 	// Output view state
 	outputTitle    string
@@ -120,6 +122,7 @@ func (m *Model) initMenus() {
 		MenuItem{title: "3. Cloud Restore (Stage 3: Download)", description: "Restore from cloud", shortcut: '3'},
 		MenuItem{title: "4. Directory Management", description: "Select directories to backup", shortcut: '4'},
 		MenuItem{title: "5. Status & Logs", description: "View system status", shortcut: '5'},
+		MenuItem{title: "6. Restic Repository", description: "Manage snapshots and repository", shortcut: '6'},
 		MenuItem{title: "─────────────────────", description: "", shortcut: '-'},
 		MenuItem{title: "R. Run Backup Now", description: "Run backup now", shortcut: 'r'},
 		MenuItem{title: "P. Preview (Dry Run)", description: "Preview backup without changes", shortcut: 'p'},
@@ -131,11 +134,16 @@ func (m *Model) initMenus() {
 	backupItems := []list.Item{
 		MenuItem{title: "R. Run Backup", description: "Run backup with default settings", shortcut: 'r'},
 		MenuItem{title: "P. Preview (Dry Run)", description: "Preview what would be backed up", shortcut: 'p'},
+	}
+	m.backupMenu = createMenu("Backup Options", backupItems)
+
+	// Restic repository menu items
+	resticItems := []list.Item{
 		MenuItem{title: "L. List Snapshots", description: "Show recent backup snapshots", shortcut: 'l'},
 		MenuItem{title: "M. Manage Snapshots", description: "Delete snapshots and prune repository", shortcut: 'm'},
 		MenuItem{title: "V. Verify Repository", description: "Verify the restic repository", shortcut: 'v'},
 	}
-	m.backupMenu = createMenu("Backup Options", backupItems)
+	m.resticMenu = createMenu("Restic Repository", resticItems)
 
 	// Sync menu items
 	syncItems := []list.Item{
@@ -235,9 +243,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case CommandDoneMsg:
 		if msg.Err != nil {
-			m.outputContent.WriteString(fmt.Sprintf("\n%s\n", ErrorStyle.Render(fmt.Sprintf("Error: %v", msg.Err))))
+			fmt.Fprintf(m.outputContent, "\n%s\n", ErrorStyle.Render(fmt.Sprintf("Error: %v", msg.Err)))
 		} else {
-			m.outputContent.WriteString(fmt.Sprintf("\n%s\n", SuccessStyle.Render("Completed successfully!")))
+			fmt.Fprintf(m.outputContent, "\n%s\n", SuccessStyle.Render("Completed successfully!"))
 		}
 		m.outputContent.WriteString("\nPress ESC to go back")
 		if m.outputReady {
@@ -283,6 +291,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleRestoreMenuKey(msg)
 	case ScreenStatus:
 		return m.handleStatusMenuKey(msg)
+	case ScreenRestic:
+		return m.handleResticMenuKey(msg)
 	case ScreenDirlist:
 		return m.handleDirlistKey(msg)
 	case ScreenOutput:
@@ -315,11 +325,13 @@ func (m Model) handleMainMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.changeScreen(ScreenDirlist)
 		case 4:
 			return m.changeScreen(ScreenStatus)
-		case 6:
+		case 5:
+			return m.changeScreen(ScreenRestic)
+		case 7: // After separator
 			return m.runQuickBackup()
-		case 7:
-			return m.runDryRunBackup()
 		case 8:
+			return m.runDryRunBackup()
+		case 9:
 			return m.showQuickStatus()
 		}
 	case "1":
@@ -332,6 +344,8 @@ func (m Model) handleMainMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.changeScreen(ScreenDirlist)
 	case "5":
 		return m.changeScreen(ScreenStatus)
+	case "6":
+		return m.changeScreen(ScreenRestic)
 	case "r":
 		return m.runQuickBackup()
 	case "p":
@@ -361,17 +375,36 @@ func (m Model) handleBackupMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.runQuickBackup()
 		case 1:
 			return m.runDryRunBackup()
-		case 2:
-			return m.showSnapshots()
-		case 3:
-			return m.changeScreen(ScreenSnapshots)
-		case 4:
-			return m.verifyRepository()
 		}
 	case "r":
 		return m.runQuickBackup()
 	case "p":
 		return m.runDryRunBackup()
+	}
+
+	var cmd tea.Cmd
+	m.backupMenu, cmd = m.backupMenu.Update(msg)
+	return m, cmd
+}
+
+// handleResticMenuKey handles keys on the restic repository menu
+func (m Model) handleResticMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q":
+		m.quitting = true
+		return m, tea.Quit
+	case keyEsc:
+		return m.changeScreen(ScreenMain)
+	case keyEnter:
+		idx := m.resticMenu.Index()
+		switch idx {
+		case 0:
+			return m.showSnapshots()
+		case 1:
+			return m.changeScreen(ScreenSnapshots)
+		case 2:
+			return m.verifyRepository()
+		}
 	case "l":
 		return m.showSnapshots()
 	case "m":
@@ -381,7 +414,7 @@ func (m Model) handleBackupMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	m.backupMenu, cmd = m.backupMenu.Update(msg)
+	m.resticMenu, cmd = m.resticMenu.Update(msg)
 	return m, cmd
 }
 
@@ -497,41 +530,54 @@ func (m Model) handleDirlistKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.dirlistCursor++
 		}
 	case "enter", " ":
-		if len(m.dirlistDirs) > 0 {
-			dir := m.dirlistDirs[m.dirlistCursor]
-			m.dirlistSelections[dir] = !m.dirlistSelections[dir]
-			m.dirlistModified = true
-		}
+		m.toggleCurrentDirSelection()
 	case "s":
 		return m.saveDirlist()
 	case "a":
-		for dir := range m.dirlistSelections {
-			m.dirlistSelections[dir] = true
-		}
-		m.dirlistModified = true
+		m.setAllDirlistSelections(true)
 	case "n":
-		for dir := range m.dirlistSelections {
-			m.dirlistSelections[dir] = false
-		}
-		m.dirlistModified = true
+		m.setAllDirlistSelections(false)
 	case "x", "X":
-		// Open file picker to add external path
 		return m.openFilePicker()
 	case "d", "D":
-		// Remove external entry (only if current entry is external)
-		if len(m.dirlistDirs) > 0 {
-			dir := m.dirlistDirs[m.dirlistCursor]
-			entry := m.dirlist.GetEntry(dir)
-			if entry != nil && entry.IsExternal {
-				if err := m.dirlist.RemoveExternal(dir); err == nil {
-					m.dirlistModified = true
-					m.refreshDirlistView() // Refresh view without reloading from file
-				}
-			}
-		}
+		m.removeCurrentExternalEntry()
 	}
 
 	return m, nil
+}
+
+// toggleCurrentDirSelection toggles the selection of the current directory
+func (m *Model) toggleCurrentDirSelection() {
+	if len(m.dirlistDirs) == 0 {
+		return
+	}
+	dir := m.dirlistDirs[m.dirlistCursor]
+	m.dirlistSelections[dir] = !m.dirlistSelections[dir]
+	m.dirlistModified = true
+}
+
+// setAllDirlistSelections sets all directory selections to the given value
+func (m *Model) setAllDirlistSelections(enabled bool) {
+	for dir := range m.dirlistSelections {
+		m.dirlistSelections[dir] = enabled
+	}
+	m.dirlistModified = true
+}
+
+// removeCurrentExternalEntry removes the current entry if it's an external entry
+func (m *Model) removeCurrentExternalEntry() {
+	if len(m.dirlistDirs) == 0 {
+		return
+	}
+	dir := m.dirlistDirs[m.dirlistCursor]
+	entry := m.dirlist.GetEntry(dir)
+	if entry == nil || !entry.IsExternal {
+		return
+	}
+	if err := m.dirlist.RemoveExternal(dir); err == nil {
+		m.dirlistModified = true
+		m.refreshDirlistView()
+	}
 }
 
 // handleOutputKey handles keys on the output screen
@@ -638,6 +684,8 @@ func (m Model) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.restoreMenu, cmd = m.restoreMenu.Update(msg)
 	case ScreenStatus:
 		m.statusMenu, cmd = m.statusMenu.Update(msg)
+	case ScreenRestic:
+		m.resticMenu, cmd = m.resticMenu.Update(msg)
 	case ScreenFilePicker:
 		m.filepicker, cmd = m.filepicker.Update(msg)
 	}
@@ -706,6 +754,7 @@ func (m *Model) updateMenuSizes() {
 	m.syncMenu.SetSize(menuWidth, menuHeight)
 	m.restoreMenu.SetSize(menuWidth, menuHeight)
 	m.statusMenu.SetSize(menuWidth, menuHeight)
+	m.resticMenu.SetSize(menuWidth, menuHeight)
 }
 
 // View implements tea.Model
@@ -725,6 +774,8 @@ func (m Model) View() string {
 		return m.viewRestoreMenu()
 	case ScreenStatus:
 		return m.viewStatusMenu()
+	case ScreenRestic:
+		return m.viewResticMenu()
 	case ScreenDirlist:
 		return m.viewDirlist()
 	case ScreenOutput:
@@ -767,6 +818,21 @@ func (m Model) viewBackupMenu() string {
 		title,
 		"",
 		m.backupMenu.View(),
+		"",
+		footer,
+	)
+}
+
+// viewResticMenu renders the restic repository menu
+func (m Model) viewResticMenu() string {
+	title := TitleStyle.Render("Restic Repository")
+	footer := Footer("ESC: Back | Q: Quit")
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		m.resticMenu.View(),
 		"",
 		footer,
 	)
@@ -977,7 +1043,7 @@ func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case keyEsc:
-		return m.changeScreen(ScreenBackup)
+		return m.changeScreen(ScreenRestic)
 	case "up", "k":
 		if m.snapshotCursor > 0 {
 			m.snapshotCursor--
@@ -990,11 +1056,16 @@ func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "home", "g":
 		m.snapshotCursor = 0
-		m.snapshotViewport.GotoTop()
+		m.snapshotYOffset = 0
 	case "end", "G":
 		if len(m.snapshotList) > 0 {
 			m.snapshotCursor = len(m.snapshotList) - 1
-			m.snapshotViewport.GotoBottom()
+			// Calculate YOffset to show cursor at bottom of viewport
+			// (viewport content may not be set yet, so calculate manually)
+			m.snapshotYOffset = m.snapshotCursor - m.snapshotViewport.Height + 1
+			if m.snapshotYOffset < 0 {
+				m.snapshotYOffset = 0
+			}
 		}
 	case "pgup", "ctrl+u":
 		// Move cursor up by viewport height
@@ -1049,20 +1120,22 @@ func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// ensureSnapshotCursorVisible scrolls the viewport to keep cursor visible
+// ensureSnapshotCursorVisible adjusts snapshotYOffset to keep cursor visible
 func (m *Model) ensureSnapshotCursorVisible() {
 	if !m.snapshotVpReady {
 		return
 	}
 	// Each snapshot is one line
 	cursorLine := m.snapshotCursor
-	viewTop := m.snapshotViewport.YOffset
+	viewTop := m.snapshotYOffset
 	viewBottom := viewTop + m.snapshotViewport.Height - 1
 
 	if cursorLine < viewTop {
-		m.snapshotViewport.SetYOffset(cursorLine)
+		// Cursor is above viewport - scroll so cursor is at top
+		m.snapshotYOffset = cursorLine
 	} else if cursorLine > viewBottom {
-		m.snapshotViewport.SetYOffset(cursorLine - m.snapshotViewport.Height + 1)
+		// Cursor is below viewport - scroll so cursor is at bottom
+		m.snapshotYOffset = cursorLine - m.snapshotViewport.Height + 1
 	}
 }
 
@@ -1204,6 +1277,10 @@ func (m Model) viewSnapshots() string {
 	// Set viewport content
 	content := strings.TrimSuffix(rows.String(), "\n")
 	m.snapshotViewport.SetContent(content)
+
+	// Restore scroll position from model field (SetContent resets YOffset to 0)
+	// The YOffset is stored in snapshotYOffset by handleSnapshotsKey after each scroll operation
+	m.snapshotViewport.SetYOffset(m.snapshotYOffset)
 
 	// Count selected
 	selectedCount := 0

@@ -43,35 +43,44 @@ func NewResticManager(cfg *config.LocalBackupConfig, dryRun bool, outputWriter i
 func (r *ResticManager) SetupEnv() error {
 	os.Setenv("RESTIC_REPOSITORY", r.config.Repository)
 
-	if r.config.PasswordFile != "" {
+	switch {
+	case r.config.PasswordFile != "":
 		if _, err := os.Stat(r.config.PasswordFile); err != nil {
 			return fmt.Errorf("password file not found: %s", r.config.PasswordFile)
 		}
 		os.Setenv("RESTIC_PASSWORD_FILE", r.config.PasswordFile)
-	} else if r.config.PasswordCommand != "" {
+	case r.config.PasswordCommand != "":
 		os.Setenv("RESTIC_PASSWORD_COMMAND", r.config.PasswordCommand)
-	} else if r.config.Password != "" {
+	case r.config.Password != "":
 		// Create temp password file (more secure than env var)
-		tmpFile, err := os.CreateTemp("", "restic-pass-*")
-		if err != nil {
-			return fmt.Errorf("cannot create temp password file: %w", err)
+		if err := r.createTempPasswordFile(); err != nil {
+			return err
 		}
-		if _, err := tmpFile.WriteString(r.config.Password); err != nil {
-			tmpFile.Close()
-			return fmt.Errorf("cannot write to temp password file: %w", err)
-		}
-		tmpFile.Close()
-		if err := os.Chmod(tmpFile.Name(), 0o600); err != nil {
-			return fmt.Errorf("cannot set temp password file permissions: %w", err)
-		}
-		os.Setenv("RESTIC_PASSWORD_FILE", tmpFile.Name())
-
-		// Schedule cleanup
-		r.cleanupFuncs = append(r.cleanupFuncs, func() {
-			os.Remove(tmpFile.Name())
-		})
 	}
 
+	return nil
+}
+
+// createTempPasswordFile creates a temporary file with the password
+func (r *ResticManager) createTempPasswordFile() error {
+	tmpFile, err := os.CreateTemp("", "restic-pass-*")
+	if err != nil {
+		return fmt.Errorf("cannot create temp password file: %w", err)
+	}
+	if _, err := tmpFile.WriteString(r.config.Password); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("cannot write to temp password file: %w", err)
+	}
+	tmpFile.Close()
+	if err := os.Chmod(tmpFile.Name(), 0o600); err != nil {
+		return fmt.Errorf("cannot set temp password file permissions: %w", err)
+	}
+	os.Setenv("RESTIC_PASSWORD_FILE", tmpFile.Name())
+
+	// Schedule cleanup
+	r.cleanupFuncs = append(r.cleanupFuncs, func() {
+		os.Remove(tmpFile.Name())
+	})
 	return nil
 }
 

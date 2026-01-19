@@ -57,48 +57,13 @@ func DefaultOptions() CommandOptions {
 	}
 }
 
-// RunCommand executes a command with the given options
-func RunCommand(name string, args []string, opts CommandOptions) (*CommandResult, error) {
-	start := time.Now()
-	result := &CommandResult{}
-
-	// Create context with timeout if specified
-	var ctx context.Context
-	var cancel context.CancelFunc
-	if opts.Timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), opts.Timeout)
-		defer cancel()
-	} else {
-		ctx = context.Background()
-	}
-
-	// Create command
-	cmd := exec.CommandContext(ctx, name, args...)
-
-	// Set working directory
-	if opts.Dir != "" {
-		cmd.Dir = opts.Dir
-	}
-
-	// Set environment
-	if len(opts.Env) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range opts.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-
-	// Set stdin
-	if opts.Stdin != nil {
-		cmd.Stdin = opts.Stdin
-	}
-
-	// Setup output capture
-	var stdout, stderr bytes.Buffer
-	var stdoutWriters, stderrWriters []io.Writer
+// setupOutputWriters creates writers for stdout/stderr based on options
+func setupOutputWriters(opts CommandOptions) (stdout, stderr *bytes.Buffer, stdoutWriters, stderrWriters []io.Writer) {
+	stdout = &bytes.Buffer{}
+	stderr = &bytes.Buffer{}
 
 	if opts.CaptureOut {
-		stdoutWriters = append(stdoutWriters, &stdout)
+		stdoutWriters = append(stdoutWriters, stdout)
 	}
 	if opts.StreamOut {
 		if opts.OutputWriter != nil {
@@ -109,7 +74,7 @@ func RunCommand(name string, args []string, opts CommandOptions) (*CommandResult
 	}
 
 	if opts.CaptureErr {
-		stderrWriters = append(stderrWriters, &stderr)
+		stderrWriters = append(stderrWriters, stderr)
 	}
 	if opts.StreamErr {
 		if opts.OutputWriter != nil {
@@ -119,6 +84,39 @@ func RunCommand(name string, args []string, opts CommandOptions) (*CommandResult
 		}
 	}
 
+	return stdout, stderr, stdoutWriters, stderrWriters
+}
+
+// RunCommand executes a command with the given options
+func RunCommand(name string, args []string, opts CommandOptions) (*CommandResult, error) {
+	start := time.Now()
+	result := &CommandResult{}
+
+	// Create context with timeout if specified
+	ctx := context.Background()
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	}
+
+	// Create and configure command
+	cmd := exec.CommandContext(ctx, name, args...)
+	if opts.Dir != "" {
+		cmd.Dir = opts.Dir
+	}
+	if len(opts.Env) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range opts.Env {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	}
+
+	// Setup output capture
+	stdout, stderr, stdoutWriters, stderrWriters := setupOutputWriters(opts)
 	if len(stdoutWriters) > 0 {
 		cmd.Stdout = io.MultiWriter(stdoutWriters...)
 	}
@@ -129,8 +127,6 @@ func RunCommand(name string, args []string, opts CommandOptions) (*CommandResult
 	// Run command
 	err := cmd.Run()
 	result.Duration = time.Since(start)
-
-	// Capture output
 	result.Stdout = strings.TrimSpace(stdout.String())
 	result.Stderr = strings.TrimSpace(stderr.String())
 

@@ -111,7 +111,7 @@ cat "$OUTPUT_DIR/02-backup-menu.txt"
 # Test 3: Navigate to Snapshot Management screen
 header "Test 3: Snapshot Management Screen"
 info "Opening snapshot management..."
-tui-goggles -cols 120 -rows 30 -keys "1 m" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/03-snapshot-management.txt"
+tui-goggles -cols 120 -rows 30 -keys "6 m" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/03-snapshot-management.txt"
 success "Snapshot management screen captured"
 cat "$OUTPUT_DIR/03-snapshot-management.txt"
 
@@ -154,7 +154,7 @@ fi
 # Test 4: Navigate down in snapshot list
 header "Test 4: Basic Navigation (down arrow)"
 info "Testing navigation (down arrow)..."
-tui-goggles -cols 120 -rows 20 -keys "1 m down down down" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04-snapshot-nav.txt"
+tui-goggles -cols 120 -rows 20 -keys "6 m down down down" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04-snapshot-nav.txt"
 success "Navigation captured"
 cat "$OUTPUT_DIR/04-snapshot-nav.txt"
 
@@ -172,7 +172,7 @@ fi
 header "Test 4a: Jump to End (G key)"
 info "Testing jump to last snapshot with 'G' key..."
 # Use small viewport (15 rows) to ensure scrolling is needed
-tui-goggles -cols 120 -rows 15 -keys "1 m G" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04a-jump-end.txt"
+tui-goggles -cols 120 -rows 15 -keys "6 m G" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04a-jump-end.txt"
 success "Jump to end captured"
 cat "$OUTPUT_DIR/04a-jump-end.txt"
 
@@ -191,7 +191,7 @@ fi
 header "Test 4b: Jump to Home (g key)"
 info "Testing jump to first snapshot with 'g' key..."
 # First go to end, then back to home
-tui-goggles -cols 120 -rows 15 -keys "1 m G g" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04b-jump-home.txt"
+tui-goggles -cols 120 -rows 15 -keys "6 m G g" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04b-jump-home.txt"
 success "Jump to home captured"
 cat "$OUTPUT_DIR/04b-jump-home.txt"
 
@@ -205,7 +205,7 @@ fi
 
 header "Test 4c: Page Down (pgdown)"
 info "Testing page down navigation..."
-tui-goggles -cols 120 -rows 15 -keys "1 m pgdown pgdown" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04c-pagedown.txt"
+tui-goggles -cols 120 -rows 15 -keys "6 m pgdown pgdown" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04c-pagedown.txt"
 success "Page down captured"
 cat "$OUTPUT_DIR/04c-pagedown.txt"
 
@@ -219,7 +219,7 @@ fi
 header "Test 4d: Page Up (pgup)"
 info "Testing page up navigation..."
 # First page down twice, then page up once
-tui-goggles -cols 120 -rows 15 -keys "1 m pgdown pgdown pgup" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04d-pageup.txt"
+tui-goggles -cols 120 -rows 15 -keys "6 m pgdown pgdown pgup" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04d-pageup.txt"
 success "Page up captured"
 cat "$OUTPUT_DIR/04d-pageup.txt"
 
@@ -233,7 +233,7 @@ fi
 header "Test 4e: Scroll Indicator with Long List"
 info "Verifying scroll percentage indicator..."
 # Go to middle of list
-tui-goggles -cols 120 -rows 15 -keys "1 m pgdown pgdown pgdown" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04e-scroll-indicator.txt"
+tui-goggles -cols 120 -rows 15 -keys "6 m pgdown pgdown pgdown" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/04e-scroll-indicator.txt"
 success "Scroll indicator captured"
 cat "$OUTPUT_DIR/04e-scroll-indicator.txt"
 
@@ -248,7 +248,7 @@ fi
 # Test 5: Select a snapshot with SPACE
 header "Test 5: Select Snapshot"
 info "Testing selection (space key)..."
-tui-goggles -cols 120 -rows 30 -keys "1 m space" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/05-snapshot-select.txt"
+tui-goggles -cols 120 -rows 30 -keys "6 m space" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/05-snapshot-select.txt"
 success "Selection captured"
 cat "$OUTPUT_DIR/05-snapshot-select.txt"
 
@@ -264,7 +264,7 @@ fi
 # Test 6: Select all
 header "Test 6: Select All"
 info "Testing select all (a key)..."
-tui-goggles -cols 120 -rows 30 -keys "1 m a" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/06-snapshot-select-all.txt"
+tui-goggles -cols 120 -rows 30 -keys "6 m a" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/06-snapshot-select-all.txt"
 success "Select all captured"
 cat "$OUTPUT_DIR/06-snapshot-select-all.txt"
 
@@ -287,14 +287,14 @@ fi
 # Test 7: ESC returns to backup menu
 header "Test 7: ESC Navigation"
 info "Testing ESC to return..."
-tui-goggles -cols 100 -rows 25 -keys "1 m esc" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/07-esc-back.txt"
+tui-goggles -cols 100 -rows 25 -keys "6 m esc" -delay 5s -stable-time 1s -- backup-tui > "$OUTPUT_DIR/07-esc-back.txt"
 success "ESC navigation captured"
 cat "$OUTPUT_DIR/07-esc-back.txt"
 
-if grep -q "Backup Menu\|Backup Options" "$OUTPUT_DIR/07-esc-back.txt"; then
-    success "ESC returns to Backup menu"
+if grep -q "Restic Repository" "$OUTPUT_DIR/07-esc-back.txt"; then
+    success "ESC returns to Restic Repository menu"
 else
-    fail "ESC did not return to Backup menu"
+    fail "ESC did not return to Restic Repository menu"
 fi
 
 # ==========================================
@@ -308,7 +308,7 @@ info "Snapshots before: $BEFORE_COUNT"
 
 info "Testing dry-run deletion (select first snapshot, press Shift+D)..."
 # Select first snapshot with space, then Shift+D for dry-run
-tui-goggles -cols 120 -rows 35 -keys "1 m space D" -delay 8s -stable-time 2s -- backup-tui > "$OUTPUT_DIR/08-delete-dry-run.txt"
+tui-goggles -cols 120 -rows 35 -keys "6 m space D" -delay 8s -stable-time 2s -- backup-tui > "$OUTPUT_DIR/08-delete-dry-run.txt"
 success "Dry-run deletion captured"
 cat "$OUTPUT_DIR/08-delete-dry-run.txt"
 
@@ -338,7 +338,7 @@ info "Will delete snapshot: $FIRST_SNAPSHOT_ID"
 
 info "Selecting first snapshot and pressing 'd' for actual deletion..."
 # Select first snapshot with space, then lowercase 'd' for actual delete
-tui-goggles -cols 120 -rows 35 -keys "1 m space d" -delay 10s -stable-time 2s -- backup-tui > "$OUTPUT_DIR/09-delete-actual.txt"
+tui-goggles -cols 120 -rows 35 -keys "6 m space d" -delay 10s -stable-time 2s -- backup-tui > "$OUTPUT_DIR/09-delete-actual.txt"
 success "Deletion operation captured"
 cat "$OUTPUT_DIR/09-delete-actual.txt"
 
@@ -367,7 +367,7 @@ restic snapshots
 
 header "Test 10: Dry-Run Prune (Shift+P)"
 info "Testing dry-run prune..."
-tui-goggles -cols 120 -rows 35 -keys "1 m P" -delay 10s -stable-time 2s -- backup-tui > "$OUTPUT_DIR/10-prune-dry-run.txt"
+tui-goggles -cols 120 -rows 35 -keys "6 m P" -delay 10s -stable-time 2s -- backup-tui > "$OUTPUT_DIR/10-prune-dry-run.txt"
 success "Dry-run prune captured"
 cat "$OUTPUT_DIR/10-prune-dry-run.txt"
 
@@ -380,7 +380,7 @@ fi
 header "Test 11: Actual Repository Prune (P key)"
 info "Running actual prune operation..."
 # Note: lowercase 'p' for actual prune
-tui-goggles -cols 120 -rows 35 -keys "1 m p" -delay 15s -stable-time 3s -- backup-tui > "$OUTPUT_DIR/11-prune-actual.txt"
+tui-goggles -cols 120 -rows 35 -keys "6 m p" -delay 15s -stable-time 3s -- backup-tui > "$OUTPUT_DIR/11-prune-actual.txt"
 success "Prune operation captured"
 cat "$OUTPUT_DIR/11-prune-actual.txt"
 

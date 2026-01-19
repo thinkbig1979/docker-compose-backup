@@ -64,15 +64,16 @@ func (r *RestoreService) prepareDirectory(targetDir string) error {
 
 	// Check if directory exists
 	info, err := os.Stat(targetDir)
-	if err == nil {
+	switch {
+	case err == nil:
 		if !info.IsDir() {
 			return fmt.Errorf("target exists but is not a directory: %s", targetDir)
 		}
 
 		// Check if it's empty
-		entries, err := os.ReadDir(targetDir)
-		if err != nil {
-			return fmt.Errorf("cannot read target directory: %w", err)
+		entries, readErr := os.ReadDir(targetDir)
+		if readErr != nil {
+			return fmt.Errorf("cannot read target directory: %w", readErr)
 		}
 
 		if len(entries) > 0 {
@@ -81,13 +82,13 @@ func (r *RestoreService) prepareDirectory(targetDir string) error {
 			}
 			util.LogWarn("Force mode enabled, proceeding with non-empty directory")
 		}
-	} else if os.IsNotExist(err) {
+	case os.IsNotExist(err):
 		// Create directory
-		if err := os.MkdirAll(targetDir, 0o755); err != nil {
-			return fmt.Errorf("cannot create target directory: %w", err)
+		if mkErr := os.MkdirAll(targetDir, 0o755); mkErr != nil {
+			return fmt.Errorf("cannot create target directory: %w", mkErr)
 		}
 		util.LogInfo("Created target directory: %s", targetDir)
-	} else {
+	default:
 		return fmt.Errorf("cannot check target directory: %w", err)
 	}
 

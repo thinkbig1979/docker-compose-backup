@@ -127,9 +127,7 @@ func (s *Service) Run() error {
 
 	// Phase 3: Backup processing
 	util.LogHeader("Phase 3: Sequential Backup Processing")
-	if err := s.processBackups(); err != nil {
-		return err
-	}
+	s.processBackups()
 
 	// Summary
 	s.stats.EndTime = time.Now()
@@ -191,13 +189,13 @@ func (s *Service) scanDirectories() error {
 	return nil
 }
 
-func (s *Service) processBackups() error {
+func (s *Service) processBackups() {
 	enabledDirs := s.dirlist.GetEnabled()
 
 	if len(enabledDirs) == 0 {
 		util.LogWarn("No directories enabled for backup")
 		util.LogInfo("Edit %s to enable directories", s.dirlist.FilePath())
-		return nil
+		return
 	}
 
 	util.LogProgress("Processing %d enabled directories", len(enabledDirs))
@@ -226,8 +224,6 @@ func (s *Service) processBackups() error {
 			s.stats.Succeeded++
 		}
 	}
-
-	return nil
 }
 
 func (s *Service) processDirectory(dirID string) error {

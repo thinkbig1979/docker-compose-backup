@@ -105,9 +105,9 @@ func main() {
 	if err := util.InitDefaultLogger(logPath, verbose); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Cannot initialize logging: %v\n", err)
 	}
-	defer util.CloseDefaultLogger()
 
 	// Handle commands
+	exitCode := ExitSuccess
 	switch command {
 	case "":
 		// No command - run TUI
@@ -141,7 +141,12 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		showUsage()
-		os.Exit(ExitConfigError)
+		exitCode = ExitConfigError
+	}
+
+	util.CloseDefaultLogger()
+	if exitCode != ExitSuccess {
+		os.Exit(exitCode)
 	}
 }
 
@@ -404,7 +409,7 @@ RETRIES=3
 		os.Exit(ExitConfigError)
 	}
 
-	if err := os.WriteFile(outputPath, []byte(template), 0o644); err != nil {
+	if err := os.WriteFile(outputPath, []byte(template), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating template: %v\n", err)
 		os.Exit(ExitConfigError)
 	}
