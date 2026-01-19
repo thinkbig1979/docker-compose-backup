@@ -14,13 +14,17 @@ RUN apk add --no-cache \
     jq
 
 # Create test directories
-RUN mkdir -p /app/config /app/output /opt/docker-stacks /backup
+RUN mkdir -p /app/config /app/output /opt/docker-stacks /backup /app/bin
 
 WORKDIR /app
 
 # Copy test scripts
 COPY test/scripts/ /app/scripts/
 RUN chmod +x /app/scripts/*.sh
+
+# Copy tui-goggles for TUI testing
+COPY test/bin/tui-goggles /usr/local/bin/tui-goggles
+RUN chmod +x /usr/local/bin/tui-goggles
 
 # Default command runs all tests
 CMD ["/app/scripts/run-tests.sh"]

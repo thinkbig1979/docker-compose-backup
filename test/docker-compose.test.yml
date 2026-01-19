@@ -22,9 +22,31 @@ services:
       - ./output:/app/output
     environment:
       - TERM=xterm-256color
+      - RESTIC_REPOSITORY=/backup/restic-repo
+      - RESTIC_PASSWORD=test-password-123
     depends_on:
       - mock-stack-1
       - mock-stack-2
+    networks:
+      - test-net
+
+  # Snapshot management test runner
+  snapshot-test:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile.test
+    volumes:
+      - ../bin/backup-tui:/usr/local/bin/backup-tui:ro
+      - ./config:/app/config:ro
+      - backup-repo:/backup
+      - ./mock-stacks:/opt/docker-stacks
+      - ./output:/app/output
+    environment:
+      - TERM=xterm-256color
+      - RESTIC_REPOSITORY=/backup/restic-repo
+      - RESTIC_PASSWORD=test-password-123
+      - BACKUP_CONFIG=/app/config/config.ini
+    command: ["/app/scripts/test-snapshot-management.sh"]
     networks:
       - test-net
 

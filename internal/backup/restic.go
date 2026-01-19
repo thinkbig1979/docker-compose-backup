@@ -325,6 +325,67 @@ func (r *ResticManager) RestorePreview(dirName string) (string, error) {
 	return result.Stdout, nil
 }
 
+// ForgetSnapshots deletes specific snapshots by ID
+func (r *ResticManager) ForgetSnapshots(snapshotIDs []string, dryRun bool) error {
+	if len(snapshotIDs) == 0 {
+		return fmt.Errorf("no snapshots specified")
+	}
+
+	util.LogProgress("Forgetting %d snapshot(s)", len(snapshotIDs))
+
+	args := []string{"forget", "--verbose"}
+	if dryRun {
+		args = append(args, "--dry-run")
+	}
+	args = append(args, snapshotIDs...)
+
+	opts := util.CommandOptions{
+		Timeout:      time.Duration(r.config.Timeout) * time.Second,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: r.outputWriter,
+	}
+
+	result, err := util.RunCommand("restic", args, opts)
+	if err != nil {
+		return fmt.Errorf("forget failed: %w", err)
+	}
+	if !result.IsSuccess() {
+		return fmt.Errorf("forget failed with exit code %d", result.ExitCode)
+	}
+
+	util.LogSuccess("Snapshot(s) forgotten successfully")
+	return nil
+}
+
+// Prune removes unreferenced data from repository
+func (r *ResticManager) Prune(dryRun bool) error {
+	util.LogProgress("Pruning repository")
+
+	args := []string{"prune", "--verbose"}
+	if dryRun {
+		args = append(args, "--dry-run")
+	}
+
+	opts := util.CommandOptions{
+		Timeout:      time.Duration(r.config.Timeout) * time.Second,
+		StreamOut:    true,
+		StreamErr:    true,
+		OutputWriter: r.outputWriter,
+	}
+
+	result, err := util.RunCommand("restic", args, opts)
+	if err != nil {
+		return fmt.Errorf("prune failed: %w", err)
+	}
+	if !result.IsSuccess() {
+		return fmt.Errorf("prune failed with exit code %d", result.ExitCode)
+	}
+
+	util.LogSuccess("Repository pruned successfully")
+	return nil
+}
+
 // ResticAvailable checks if restic is installed
 func ResticAvailable() bool {
 	return util.CommandExists("restic")

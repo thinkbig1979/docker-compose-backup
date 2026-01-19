@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
@@ -11,9 +12,20 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"backup-tui/internal/backup"
 	"backup-tui/internal/config"
 	"backup-tui/internal/dirlist"
 )
+
+// tuiWriter wraps strings.Builder for io.Writer compatibility
+type tuiWriter struct {
+	builder *strings.Builder
+}
+
+func (w *tuiWriter) Write(p []byte) (n int, err error) {
+	w.builder.Write(p)
+	return len(p), nil
+}
 
 // MenuItem represents a menu item
 type MenuItem struct {
@@ -57,6 +69,13 @@ type Model struct {
 	filepicker       filepicker.Model
 	filePickerActive bool
 	filePickerErr    string
+
+	// Snapshot management state
+	snapshotList     []backup.Snapshot
+	snapshotCursor   int
+	snapshotSelected map[string]bool
+	snapshotLoading  bool
+	snapshotErr      string
 
 	// Output view state
 	outputTitle    string
@@ -111,6 +130,7 @@ func (m *Model) initMenus() {
 		MenuItem{title: "R. Run Backup", description: "Run backup with default settings", shortcut: 'r'},
 		MenuItem{title: "P. Preview (Dry Run)", description: "Preview what would be backed up", shortcut: 'p'},
 		MenuItem{title: "L. List Snapshots", description: "Show recent backup snapshots", shortcut: 'l'},
+		MenuItem{title: "M. Manage Snapshots", description: "Delete snapshots and prune repository", shortcut: 'm'},
 		MenuItem{title: "V. Verify Repository", description: "Verify the restic repository", shortcut: 'v'},
 	}
 	m.backupMenu = createMenu("Backup Options", backupItems)
@@ -258,6 +278,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleOutputKey(msg)
 	case ScreenFilePicker:
 		return m.handleFilePickerKey(msg)
+	case ScreenSnapshots:
+		return m.handleSnapshotsKey(msg)
 	}
 
 	return m, nil
@@ -331,6 +353,8 @@ func (m Model) handleBackupMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case 2:
 			return m.showSnapshots()
 		case 3:
+			return m.changeScreen(ScreenSnapshots)
+		case 4:
 			return m.verifyRepository()
 		}
 	case "r":
@@ -339,6 +363,8 @@ func (m Model) handleBackupMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.runDryRunBackup()
 	case "l":
 		return m.showSnapshots()
+	case "m":
+		return m.changeScreen(ScreenSnapshots)
 	case "v":
 		return m.verifyRepository()
 	}
@@ -520,7 +546,7 @@ func (m Model) handleOutputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // openFilePicker initializes and opens the file picker
 func (m Model) openFilePicker() (tea.Model, tea.Cmd) {
 	fp := filepicker.New()
-	fp.DirAllowed = false // Don't select directories on Enter - let Enter navigate into them
+	fp.DirAllowed = false  // Don't select directories on Enter - let Enter navigate into them
 	fp.FileAllowed = false // We only want directory navigation, use 'a' key to add current dir
 	fp.ShowHidden = false
 	fp.ShowPermissions = false
@@ -618,6 +644,11 @@ func (m Model) changeScreen(screen Screen) (tea.Model, tea.Cmd) {
 		m.initDirlist()
 	}
 
+	// Initialize snapshots if switching to it
+	if screen == ScreenSnapshots {
+		m.initSnapshots()
+	}
+
 	return m, nil
 }
 
@@ -689,6 +720,8 @@ func (m Model) View() string {
 		return m.viewOutput()
 	case ScreenFilePicker:
 		return m.viewFilePicker()
+	case ScreenSnapshots:
+		return m.viewSnapshots()
 	}
 
 	return ""
@@ -893,6 +926,271 @@ func (m Model) viewFilePicker() string {
 		m.filepicker.View(),
 		errMsg,
 		"",
+		footer,
+	)
+}
+
+// initSnapshots loads snapshots from restic repository
+func (m *Model) initSnapshots() {
+	m.snapshotLoading = true
+	m.snapshotErr = ""
+	m.snapshotCursor = 0
+	m.snapshotSelected = make(map[string]bool)
+
+	// Create restic manager to load snapshots
+	restic := backup.NewResticManager(&m.config.LocalBackup, false, nil)
+	if err := restic.SetupEnv(); err != nil {
+		m.snapshotErr = fmt.Sprintf("Failed to setup restic: %v", err)
+		m.snapshotLoading = false
+		restic.Cleanup()
+		return
+	}
+
+	snapshots, err := restic.ListSnapshots("", 0) // All snapshots
+	restic.Cleanup()
+
+	if err != nil {
+		m.snapshotErr = fmt.Sprintf("Failed to load snapshots: %v", err)
+		m.snapshotLoading = false
+		return
+	}
+
+	m.snapshotList = snapshots
+	m.snapshotLoading = false
+}
+
+// handleSnapshotsKey handles keys on the snapshots screen
+func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q":
+		m.quitting = true
+		return m, tea.Quit
+	case keyEsc:
+		return m.changeScreen(ScreenBackup)
+	case "up", "k":
+		if m.snapshotCursor > 0 {
+			m.snapshotCursor--
+		}
+	case "down", "j":
+		if m.snapshotCursor < len(m.snapshotList)-1 {
+			m.snapshotCursor++
+		}
+	case " ":
+		// Toggle selection
+		if len(m.snapshotList) > 0 {
+			snap := m.snapshotList[m.snapshotCursor]
+			m.snapshotSelected[snap.ShortID] = !m.snapshotSelected[snap.ShortID]
+		}
+	case "a":
+		// Select all
+		for _, snap := range m.snapshotList {
+			m.snapshotSelected[snap.ShortID] = true
+		}
+	case "n":
+		// Deselect all
+		m.snapshotSelected = make(map[string]bool)
+	case "d":
+		// Delete selected snapshots
+		return m.forgetSelectedSnapshots(false)
+	case "D":
+		// Delete selected (dry run)
+		return m.forgetSelectedSnapshots(true)
+	case "p":
+		// Prune repository
+		return m.pruneRepository(false)
+	case "P":
+		// Prune repository (dry run)
+		return m.pruneRepository(true)
+	case "r":
+		// Refresh snapshot list
+		m.initSnapshots()
+	}
+
+	return m, nil
+}
+
+// forgetSelectedSnapshots deletes selected snapshots
+func (m Model) forgetSelectedSnapshots(dryRun bool) (tea.Model, tea.Cmd) {
+	// Get selected snapshot IDs
+	var selectedIDs []string
+	for id, selected := range m.snapshotSelected {
+		if selected {
+			selectedIDs = append(selectedIDs, id)
+		}
+	}
+
+	if len(selectedIDs) == 0 {
+		m.snapshotErr = "No snapshots selected"
+		return m, nil
+	}
+
+	// Clear output and switch to output screen
+	m.outputContent.Reset()
+	m.outputTitle = "Forgetting Snapshots"
+	if dryRun {
+		m.outputTitle = "Forgetting Snapshots (Dry Run)"
+	}
+	m.prevScreen = ScreenSnapshots
+	m.screen = ScreenOutput
+	if m.outputReady {
+		m.outputViewport.SetContent("")
+		m.outputViewport.GotoTop()
+	}
+
+	// Run forget command
+	return m, func() tea.Msg {
+		startTime := time.Now()
+		restic := backup.NewResticManager(&m.config.LocalBackup, dryRun, &tuiWriter{m.outputContent})
+
+		if err := restic.SetupEnv(); err != nil {
+			return CommandDoneMsg{
+				Operation: "forget",
+				Err:       err,
+				Duration:  time.Since(startTime),
+			}
+		}
+		defer restic.Cleanup()
+
+		err := restic.ForgetSnapshots(selectedIDs, dryRun)
+		return CommandDoneMsg{
+			Operation: "forget",
+			Err:       err,
+			Duration:  time.Since(startTime),
+		}
+	}
+}
+
+// pruneRepository prunes the restic repository
+func (m Model) pruneRepository(dryRun bool) (tea.Model, tea.Cmd) {
+	// Clear output and switch to output screen
+	m.outputContent.Reset()
+	m.outputTitle = "Pruning Repository"
+	if dryRun {
+		m.outputTitle = "Pruning Repository (Dry Run)"
+	}
+	m.prevScreen = ScreenSnapshots
+	m.screen = ScreenOutput
+	if m.outputReady {
+		m.outputViewport.SetContent("")
+		m.outputViewport.GotoTop()
+	}
+
+	// Run prune command
+	return m, func() tea.Msg {
+		startTime := time.Now()
+		restic := backup.NewResticManager(&m.config.LocalBackup, dryRun, &tuiWriter{m.outputContent})
+
+		if err := restic.SetupEnv(); err != nil {
+			return CommandDoneMsg{
+				Operation: "prune",
+				Err:       err,
+				Duration:  time.Since(startTime),
+			}
+		}
+		defer restic.Cleanup()
+
+		err := restic.Prune(dryRun)
+		return CommandDoneMsg{
+			Operation: "prune",
+			Err:       err,
+			Duration:  time.Since(startTime),
+		}
+	}
+}
+
+// viewSnapshots renders the snapshot management screen
+func (m Model) viewSnapshots() string {
+	title := TitleStyle.Render("Snapshot Management")
+	instructions := MutedStyle.Render("↑/↓: Navigate  SPACE: Toggle  A: All  N: None  D: Delete  P: Prune  R: Refresh  ESC: Back")
+
+	if m.snapshotLoading {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			instructions,
+			"",
+			"Loading snapshots...",
+		)
+	}
+
+	if m.snapshotErr != "" {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			instructions,
+			"",
+			ErrorStyle.Render("Error: "+m.snapshotErr),
+			"",
+			Footer("ESC: Back | R: Retry"),
+		)
+	}
+
+	if len(m.snapshotList) == 0 {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			instructions,
+			"",
+			MutedStyle.Render("No snapshots found in repository"),
+			"",
+			Footer("ESC: Back | R: Refresh"),
+		)
+	}
+
+	var rows strings.Builder
+	for i, snap := range m.snapshotList {
+		cursor := "  "
+		if i == m.snapshotCursor {
+			cursor = "> "
+		}
+
+		checkbox := "[ ]"
+		if m.snapshotSelected[snap.ShortID] {
+			checkbox = "[x]"
+		}
+
+		// Parse and format time
+		snapTime := snap.Time
+		if t, err := time.Parse(time.RFC3339Nano, snap.Time); err == nil {
+			snapTime = t.Format("2006-01-02 15:04")
+		}
+
+		// Format tags
+		tags := ""
+		if len(snap.Tags) > 0 {
+			tags = "[" + strings.Join(snap.Tags, ", ") + "]"
+			if len(tags) > 40 {
+				tags = tags[:37] + "...]"
+			}
+		}
+
+		line := fmt.Sprintf("%s%s %s  %s  %s  %s",
+			cursor, checkbox, snap.ShortID, snapTime, snap.Hostname, tags)
+		if i == m.snapshotCursor {
+			line = lipgloss.NewStyle().Bold(true).Render(line)
+		}
+		rows.WriteString(line + "\n")
+	}
+
+	// Count selected
+	selectedCount := 0
+	for _, selected := range m.snapshotSelected {
+		if selected {
+			selectedCount++
+		}
+	}
+	summary := fmt.Sprintf("Selected: %d | Total: %d", selectedCount, len(m.snapshotList))
+
+	footer := Footer("D: Delete (Shift+D: Dry Run) | P: Prune (Shift+P: Dry Run) | ESC: Back | Q: Quit")
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		instructions,
+		"",
+		rows.String(),
+		"",
+		summary,
 		footer,
 	)
 }
