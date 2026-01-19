@@ -204,24 +204,24 @@ func (s *Service) processBackups() error {
 
 	// Store initial states
 	util.LogProgress("Checking initial state of Docker stacks")
-	for _, dirName := range enabledDirs {
-		dirPath := filepath.Join(s.config.Docker.StacksDir, dirName)
-		if err := s.docker.StoreInitialState(dirName, dirPath); err != nil {
-			util.LogWarn("Failed to get initial state for %s: %v", dirName, err)
+	for _, dirID := range enabledDirs {
+		dirPath := s.dirlist.GetFullPath(dirID)
+		if err := s.docker.StoreInitialState(dirID, dirPath); err != nil {
+			util.LogWarn("Failed to get initial state for %s: %v", dirID, err)
 		}
-		state := s.docker.GetStoredState(dirName)
-		util.LogProgress("Stack %s: initially %s", dirName, state)
+		state := s.docker.GetStoredState(dirID)
+		util.LogProgress("Stack %s: initially %s", dirID, state)
 	}
 
 	// Process each directory
-	for i, dirName := range enabledDirs {
-		util.LogProgress("Processing %d of %d: %s", i+1, len(enabledDirs), dirName)
+	for i, dirID := range enabledDirs {
+		util.LogProgress("Processing %d of %d: %s", i+1, len(enabledDirs), dirID)
 		s.stats.Processed++
 
-		if err := s.processDirectory(dirName); err != nil {
-			util.LogError("Failed to process %s: %v", dirName, err)
+		if err := s.processDirectory(dirID); err != nil {
+			util.LogError("Failed to process %s: %v", dirID, err)
 			s.stats.Failed++
-			s.stats.FailedDirs = append(s.stats.FailedDirs, dirName)
+			s.stats.FailedDirs = append(s.stats.FailedDirs, dirID)
 		} else {
 			s.stats.Succeeded++
 		}
@@ -230,10 +230,24 @@ func (s *Service) processBackups() error {
 	return nil
 }
 
-func (s *Service) processDirectory(dirName string) error {
-	dirPath := filepath.Join(s.config.Docker.StacksDir, dirName)
+func (s *Service) processDirectory(dirID string) error {
+	dirPath := s.dirlist.GetFullPath(dirID)
+	if dirPath == "" {
+		return fmt.Errorf("directory not found in dirlist: %s", dirID)
+	}
 
-	s.currentDir = dirName
+	// Get entry to check if external
+	entry := s.dirlist.GetEntry(dirID)
+	isExternal := entry != nil && entry.IsExternal
+
+	// Determine the tag name for restic
+	// For external paths, use basename + "-external" suffix
+	tagName := dirID
+	if isExternal {
+		tagName = filepath.Base(dirPath) + "-external"
+	}
+
+	s.currentDir = dirID
 	s.backupInProgress = true
 	defer func() {
 		s.backupInProgress = false
@@ -241,7 +255,8 @@ func (s *Service) processDirectory(dirName string) error {
 	}()
 
 	// Validate directory
-	if !dirlist.ValidateDirName(dirName) {
+	// For discovered dirs, validate the name; for external, just check path exists
+	if !isExternal && !dirlist.ValidateDirName(dirID) {
 		return fmt.Errorf("invalid directory name")
 	}
 
@@ -250,35 +265,35 @@ func (s *Service) processDirectory(dirName string) error {
 	}
 
 	// Stop stack
-	if err := s.docker.SmartStop(dirName, dirPath); err != nil {
+	if err := s.docker.SmartStop(dirID, dirPath); err != nil {
 		return err
 	}
 
 	// Backup
-	if err := s.restic.Backup(dirPath, dirName, s.config.LocalBackup.Hostname); err != nil {
+	if err := s.restic.Backup(dirPath, tagName, s.config.LocalBackup.Hostname); err != nil {
 		// Try to restart even on failure
-		if restartErr := s.docker.SmartStart(dirName, dirPath); restartErr != nil {
+		if restartErr := s.docker.SmartStart(dirID, dirPath); restartErr != nil {
 			util.LogError("Failed to restart stack after backup failure: %v", restartErr)
 		}
 		return err
 	}
 
 	// Verify
-	if err := s.restic.Verify(dirName); err != nil {
+	if err := s.restic.Verify(tagName); err != nil {
 		util.LogWarn("Verification failed: %v", err)
 	}
 
 	// Apply retention
-	if err := s.restic.ApplyRetention(dirName, s.config.LocalBackup.Hostname); err != nil {
+	if err := s.restic.ApplyRetention(tagName, s.config.LocalBackup.Hostname); err != nil {
 		util.LogWarn("Retention failed: %v", err)
 	}
 
 	// Restart stack
-	if err := s.docker.SmartStart(dirName, dirPath); err != nil {
+	if err := s.docker.SmartStart(dirID, dirPath); err != nil {
 		return err
 	}
 
-	util.LogSuccess("Successfully processed: %s", dirName)
+	util.LogSuccess("Successfully processed: %s", dirID)
 	return nil
 }
 
@@ -297,9 +312,11 @@ func (s *Service) cleanup() {
 	if s.backupInProgress && s.currentDir != "" {
 		if s.docker.GetStoredState(s.currentDir) == StateRunning {
 			util.LogWarn("Attempting to restart interrupted stack: %s", s.currentDir)
-			dirPath := filepath.Join(s.config.Docker.StacksDir, s.currentDir)
-			if err := s.docker.ForceStart(s.currentDir, dirPath); err != nil {
-				util.LogError("Failed to restart stack during cleanup: %v", err)
+			dirPath := s.dirlist.GetFullPath(s.currentDir)
+			if dirPath != "" {
+				if err := s.docker.ForceStart(s.currentDir, dirPath); err != nil {
+					util.LogError("Failed to restart stack during cleanup: %v", err)
+				}
 			}
 		}
 	}
