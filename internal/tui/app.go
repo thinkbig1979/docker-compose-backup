@@ -76,6 +76,8 @@ type Model struct {
 	snapshotSelected map[string]bool
 	snapshotLoading  bool
 	snapshotErr      string
+	snapshotViewport viewport.Model
+	snapshotVpReady  bool
 
 	// Output view state
 	outputTitle    string
@@ -208,6 +210,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.outputViewport.Width = m.width
 			m.outputViewport.Height = viewportHeight
+		}
+
+		// Initialize or update snapshot viewport
+		if !m.snapshotVpReady {
+			m.snapshotViewport = viewport.New(m.width, viewportHeight)
+			m.snapshotVpReady = true
+		} else {
+			m.snapshotViewport.Width = m.width
+			m.snapshotViewport.Height = viewportHeight
 		}
 		return m, nil
 
@@ -970,11 +981,40 @@ func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.snapshotCursor > 0 {
 			m.snapshotCursor--
+			m.ensureSnapshotCursorVisible()
 		}
 	case "down", "j":
 		if m.snapshotCursor < len(m.snapshotList)-1 {
 			m.snapshotCursor++
+			m.ensureSnapshotCursorVisible()
 		}
+	case "home", "g":
+		m.snapshotCursor = 0
+		m.snapshotViewport.GotoTop()
+	case "end", "G":
+		if len(m.snapshotList) > 0 {
+			m.snapshotCursor = len(m.snapshotList) - 1
+			m.snapshotViewport.GotoBottom()
+		}
+	case "pgup", "ctrl+u":
+		// Move cursor up by viewport height
+		visibleLines := m.snapshotViewport.Height
+		m.snapshotCursor -= visibleLines
+		if m.snapshotCursor < 0 {
+			m.snapshotCursor = 0
+		}
+		m.ensureSnapshotCursorVisible()
+	case "pgdown", "ctrl+d":
+		// Move cursor down by viewport height
+		visibleLines := m.snapshotViewport.Height
+		m.snapshotCursor += visibleLines
+		if m.snapshotCursor >= len(m.snapshotList) {
+			m.snapshotCursor = len(m.snapshotList) - 1
+		}
+		if m.snapshotCursor < 0 {
+			m.snapshotCursor = 0
+		}
+		m.ensureSnapshotCursorVisible()
 	case " ":
 		// Toggle selection
 		if len(m.snapshotList) > 0 {
@@ -1007,6 +1047,23 @@ func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// ensureSnapshotCursorVisible scrolls the viewport to keep cursor visible
+func (m *Model) ensureSnapshotCursorVisible() {
+	if !m.snapshotVpReady {
+		return
+	}
+	// Each snapshot is one line
+	cursorLine := m.snapshotCursor
+	viewTop := m.snapshotViewport.YOffset
+	viewBottom := viewTop + m.snapshotViewport.Height - 1
+
+	if cursorLine < viewTop {
+		m.snapshotViewport.SetYOffset(cursorLine)
+	} else if cursorLine > viewBottom {
+		m.snapshotViewport.SetYOffset(cursorLine - m.snapshotViewport.Height + 1)
+	}
 }
 
 // forgetSelectedSnapshots deletes selected snapshots
@@ -1101,7 +1158,7 @@ func (m Model) pruneRepository(dryRun bool) (tea.Model, tea.Cmd) {
 // viewSnapshots renders the snapshot management screen
 func (m Model) viewSnapshots() string {
 	title := TitleStyle.Render("Snapshot Management")
-	instructions := MutedStyle.Render("↑/↓: Navigate  SPACE: Toggle  A: All  N: None  D: Delete  P: Prune  R: Refresh  ESC: Back")
+	instructions := MutedStyle.Render("↑/↓/PgUp/PgDn: Navigate  SPACE: Toggle  A: All  N: None  D: Delete  P: Prune  R: Refresh  ESC: Back")
 
 	if m.snapshotLoading {
 		return lipgloss.JoinVertical(
@@ -1137,40 +1194,16 @@ func (m Model) viewSnapshots() string {
 		)
 	}
 
+	// Build all snapshot rows
 	var rows strings.Builder
 	for i, snap := range m.snapshotList {
-		cursor := "  "
-		if i == m.snapshotCursor {
-			cursor = "> "
-		}
-
-		checkbox := "[ ]"
-		if m.snapshotSelected[snap.ShortID] {
-			checkbox = "[x]"
-		}
-
-		// Parse and format time
-		snapTime := snap.Time
-		if t, err := time.Parse(time.RFC3339Nano, snap.Time); err == nil {
-			snapTime = t.Format("2006-01-02 15:04")
-		}
-
-		// Format tags
-		tags := ""
-		if len(snap.Tags) > 0 {
-			tags = "[" + strings.Join(snap.Tags, ", ") + "]"
-			if len(tags) > 40 {
-				tags = tags[:37] + "...]"
-			}
-		}
-
-		line := fmt.Sprintf("%s%s %s  %s  %s  %s",
-			cursor, checkbox, snap.ShortID, snapTime, snap.Hostname, tags)
-		if i == m.snapshotCursor {
-			line = lipgloss.NewStyle().Bold(true).Render(line)
-		}
+		line := m.formatSnapshotLine(i, snap)
 		rows.WriteString(line + "\n")
 	}
+
+	// Set viewport content
+	content := strings.TrimSuffix(rows.String(), "\n")
+	m.snapshotViewport.SetContent(content)
 
 	// Count selected
 	selectedCount := 0
@@ -1179,7 +1212,15 @@ func (m Model) viewSnapshots() string {
 			selectedCount++
 		}
 	}
-	summary := fmt.Sprintf("Selected: %d | Total: %d", selectedCount, len(m.snapshotList))
+
+	// Build scroll info
+	scrollInfo := ""
+	if m.snapshotViewport.TotalLineCount() > m.snapshotViewport.Height {
+		scrollPercent := m.snapshotViewport.ScrollPercent()
+		scrollInfo = fmt.Sprintf(" │ %.0f%%", scrollPercent*100)
+	}
+
+	summary := fmt.Sprintf("Selected: %d | Total: %d%s", selectedCount, len(m.snapshotList), scrollInfo)
 
 	footer := Footer("D: Delete (Shift+D: Dry Run) | P: Prune (Shift+P: Dry Run) | ESC: Back | Q: Quit")
 
@@ -1188,11 +1229,65 @@ func (m Model) viewSnapshots() string {
 		title,
 		instructions,
 		"",
-		rows.String(),
+		m.snapshotViewport.View(),
 		"",
 		summary,
 		footer,
 	)
+}
+
+// formatSnapshotLine formats a single snapshot line with dynamic width
+func (m Model) formatSnapshotLine(idx int, snap backup.Snapshot) string {
+	cursor := "  "
+	if idx == m.snapshotCursor {
+		cursor = "> "
+	}
+
+	checkbox := "[ ]"
+	if m.snapshotSelected[snap.ShortID] {
+		checkbox = "[x]"
+	}
+
+	// Parse and format time
+	snapTime := snap.Time
+	if t, err := time.Parse(time.RFC3339Nano, snap.Time); err == nil {
+		snapTime = t.Format("2006-01-02 15:04")
+	}
+
+	// Format tags - full tags, no truncation
+	tags := ""
+	if len(snap.Tags) > 0 {
+		tags = "[" + strings.Join(snap.Tags, ", ") + "]"
+	}
+
+	// Fixed width columns: cursor(2) + checkbox(3) + space(1) + shortID(8) + spaces(2) + time(16) + spaces(2)
+	// = 34 chars for fixed part, rest for hostname and tags
+	fixedWidth := 34
+	availableWidth := m.width - fixedWidth
+	if availableWidth < 20 {
+		availableWidth = 20
+	}
+
+	// Allocate space: hostname gets up to 40% or remaining, tags get the rest
+	maxHostnameWidth := availableWidth * 40 / 100
+	if maxHostnameWidth < 10 {
+		maxHostnameWidth = 10
+	}
+
+	hostname := snap.Hostname
+	if len(hostname) > maxHostnameWidth {
+		hostname = hostname[:maxHostnameWidth-3] + "..."
+	}
+
+	// Build the line
+	line := fmt.Sprintf("%s%s %s  %s  %-*s  %s",
+		cursor, checkbox, snap.ShortID, snapTime, maxHostnameWidth, hostname, tags)
+
+	if idx == m.snapshotCursor {
+		line = lipgloss.NewStyle().Bold(true).Render(line)
+	}
+
+	return line
 }
 
 // Run starts the TUI application
