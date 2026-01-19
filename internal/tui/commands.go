@@ -96,6 +96,11 @@ func (m Model) showSnapshots() (tea.Model, tea.Cmd) {
 
 		// Run restic snapshots
 		restic := backup.NewResticManager(&m.config.LocalBackup, false, nil)
+		if err := restic.SetupEnv(); err != nil {
+			return CommandDoneMsg{Operation: "snapshots", Err: err}
+		}
+		defer restic.Cleanup()
+
 		snapshots, err := restic.ListSnapshots("", 20) // No tag filter, limit to 20
 		if err != nil {
 			return CommandDoneMsg{Operation: "snapshots", Err: err}
