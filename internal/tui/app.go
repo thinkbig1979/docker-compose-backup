@@ -488,7 +488,7 @@ func (m Model) handleDirlistKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if entry != nil && entry.IsExternal {
 				if err := m.dirlist.RemoveExternal(dir); err == nil {
 					m.dirlistModified = true
-					m.initDirlist() // Refresh the list
+					m.refreshDirlistView() // Refresh view without reloading from file
 				}
 			}
 		}
@@ -582,7 +582,7 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				} else {
 					m.dirlistModified = true
 					m.filePickerActive = false
-					m.initDirlist() // Refresh the list
+					m.refreshDirlistView() // Refresh view without reloading from file
 					return m.changeScreen(ScreenDirlist)
 				}
 			} else {
@@ -611,6 +611,8 @@ func (m Model) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.restoreMenu, cmd = m.restoreMenu.Update(msg)
 	case ScreenStatus:
 		m.statusMenu, cmd = m.statusMenu.Update(msg)
+	case ScreenFilePicker:
+		m.filepicker, cmd = m.filepicker.Update(msg)
 	}
 
 	return m, cmd
@@ -629,19 +631,30 @@ func (m Model) changeScreen(screen Screen) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// initDirlist initializes the dirlist state
+// initDirlist initializes the dirlist state from file
 func (m *Model) initDirlist() {
 	_ = m.dirlist.Load()
 	_, _, _ = m.dirlist.Sync()
 
+	m.refreshDirlistView()
+	m.dirlistModified = false
+}
+
+// refreshDirlistView updates the TUI state from in-memory dirlist (without reloading from file)
+func (m *Model) refreshDirlistView() {
 	allDirs := m.dirlist.GetAll()
 	m.dirlistDirs = m.dirlist.SortedDirs()
 	m.dirlistSelections = make(map[string]bool)
 	for dir, enabled := range allDirs {
 		m.dirlistSelections[dir] = enabled
 	}
-	m.dirlistCursor = 0
-	m.dirlistModified = false
+	// Keep cursor in bounds
+	if m.dirlistCursor >= len(m.dirlistDirs) {
+		m.dirlistCursor = len(m.dirlistDirs) - 1
+	}
+	if m.dirlistCursor < 0 {
+		m.dirlistCursor = 0
+	}
 }
 
 // updateMenuSizes updates menu dimensions based on window size
