@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -520,9 +521,17 @@ func (m Model) handleOutputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) openFilePicker() (tea.Model, tea.Cmd) {
 	fp := filepicker.New()
 	fp.DirAllowed = true
-	fp.FileAllowed = false
-	fp.CurrentDirectory = "/"
+	fp.FileAllowed = true // Allow selecting files too, we validate for compose file
 	fp.ShowHidden = false
+	fp.ShowPermissions = false
+	fp.ShowSize = false
+
+	// Start from user's home directory or fall back to /opt
+	startDir, err := os.UserHomeDir()
+	if err != nil {
+		startDir = "/opt"
+	}
+	fp.CurrentDirectory = startDir
 
 	height := m.height - 6
 	if height < 5 {
@@ -555,28 +564,33 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.filepicker, cmd = m.filepicker.Update(msg)
 
-	// Check if a directory was selected
+	// Check if something was selected
 	if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
-		// Validate the selected path has a compose file
-		if dirlist.ValidateAbsolutePath(path) {
-			// Add the external path
-			if err := m.dirlist.AddExternal(path); err != nil {
-				m.filePickerErr = err.Error()
+		// Check if it's a directory (for navigation) or validate for adding
+		info, err := os.Stat(path)
+		if err != nil {
+			m.filePickerErr = "Cannot access path: " + err.Error()
+			return m, cmd
+		}
+
+		if info.IsDir() {
+			// Validate the selected directory has a compose file
+			if dirlist.ValidateAbsolutePath(path) {
+				// Add the external path
+				if err := m.dirlist.AddExternal(path); err != nil {
+					m.filePickerErr = err.Error()
+				} else {
+					m.dirlistModified = true
+					m.filePickerActive = false
+					m.initDirlist() // Refresh the list
+					return m.changeScreen(ScreenDirlist)
+				}
 			} else {
-				m.dirlistModified = true
-				m.filePickerActive = false
-				m.initDirlist() // Refresh the list
-				return m.changeScreen(ScreenDirlist)
+				m.filePickerErr = "Directory must contain a docker-compose.yml file"
 			}
 		} else {
-			m.filePickerErr = "Selected directory does not contain a compose file"
+			m.filePickerErr = "Please select a directory, not a file"
 		}
-	}
-
-	// Check if directory was selected (folder entered)
-	if didSelect, path := m.filepicker.DidSelectDisabledFile(msg); didSelect {
-		// This shouldn't happen since we set FileAllowed = false
-		_ = path
 	}
 
 	return m, cmd
@@ -858,8 +872,9 @@ func (m Model) viewOutput() string {
 // viewFilePicker renders the file picker screen
 func (m Model) viewFilePicker() string {
 	title := TitleStyle.Render("Select External Directory")
-	instructions := MutedStyle.Render("Navigate to a directory with a compose file and press ENTER to add it")
-	footer := Footer("↑/↓: Navigate | ENTER: Select | ESC: Cancel | Q: Quit")
+	currentDir := CyanStyle.Render("Current: " + m.filepicker.CurrentDirectory)
+	instructions := MutedStyle.Render("Navigate to a directory with a docker-compose.yml and press ENTER")
+	footer := Footer("↑/↓: Navigate | ENTER: Select/Enter Dir | ESC: Cancel | Q: Quit")
 
 	var errMsg string
 	if m.filePickerErr != "" {
@@ -869,6 +884,7 @@ func (m Model) viewFilePicker() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
+		currentDir,
 		instructions,
 		"",
 		m.filepicker.View(),
