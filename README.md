@@ -130,8 +130,6 @@ RCLONE_PATH=/backup/restic
 TRANSFERS=4
 ```
 
-**Legacy flat format is also supported for backwards compatibility.**
-
 ### Configuration Steps
 
 1. Copy the template:

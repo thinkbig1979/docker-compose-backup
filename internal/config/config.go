@@ -90,8 +90,7 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Load reads configuration from a file, supporting both legacy flat format
-// and new INI-style sections
+// Load reads configuration from an INI-style config file with sections
 func Load(configPath string) (*Config, error) {
 	cfg := DefaultConfig()
 	cfg.ConfigFile = configPath
@@ -165,9 +164,6 @@ func (c *Config) applyValue(section, key, value string) {
 		c.applyLocalBackupValue(key, value)
 	case "cloud_sync":
 		c.applyCloudSyncValue(key, value)
-	default:
-		// Legacy flat format - try to match any key
-		c.applyLegacyValue(key, value)
 	}
 }
 
@@ -226,69 +222,12 @@ func (c *Config) applyCloudSyncValue(key, value string) {
 	}
 }
 
-// applyLegacyValue handles the old flat config format for backwards compatibility
-func (c *Config) applyLegacyValue(key, value string) {
-	switch strings.ToUpper(key) {
-	// Docker settings (legacy: BACKUP_DIR)
-	case "BACKUP_DIR":
-		c.Docker.StacksDir = value
-	case "DOCKER_TIMEOUT":
-		c.Docker.Timeout = parseInt(value, c.Docker.Timeout)
-
-	// Local backup settings
-	case "RESTIC_REPOSITORY":
-		c.LocalBackup.Repository = value
-	case "RESTIC_PASSWORD":
-		c.LocalBackup.Password = value
-	case "RESTIC_PASSWORD_FILE":
-		c.LocalBackup.PasswordFile = value
-	case "RESTIC_PASSWORD_COMMAND":
-		c.LocalBackup.PasswordCommand = value
-	case "ENABLE_PASSWORD_FILE":
-		// Legacy flag - password file path is set via RESTIC_PASSWORD_FILE
-	case "ENABLE_PASSWORD_COMMAND":
-		// Legacy flag - password command is set via RESTIC_PASSWORD_COMMAND
-	case "BACKUP_TIMEOUT":
-		c.LocalBackup.Timeout = parseInt(value, c.LocalBackup.Timeout)
-	case "HOSTNAME":
-		c.LocalBackup.Hostname = value
-	case "KEEP_DAILY":
-		c.LocalBackup.KeepDaily = parseInt(value, c.LocalBackup.KeepDaily)
-	case "KEEP_WEEKLY":
-		c.LocalBackup.KeepWeekly = parseInt(value, c.LocalBackup.KeepWeekly)
-	case "KEEP_MONTHLY":
-		c.LocalBackup.KeepMonthly = parseInt(value, c.LocalBackup.KeepMonthly)
-	case "KEEP_YEARLY":
-		c.LocalBackup.KeepYearly = parseInt(value, c.LocalBackup.KeepYearly)
-	case "AUTO_PRUNE":
-		c.LocalBackup.AutoPrune = parseBool(value)
-	case "ENABLE_BACKUP_VERIFICATION":
-		c.LocalBackup.EnableVerification = parseBool(value)
-	case "VERIFICATION_DEPTH":
-		c.LocalBackup.VerificationDepth = value
-
-	// Cloud sync settings
-	case "RCLONE_REMOTE":
-		c.CloudSync.Remote = value
-	case "RCLONE_BACKUP_PATH", "RCLONE_PATH":
-		c.CloudSync.Path = value
-	case "RCLONE_SOURCE_DIR":
-		// In legacy mode, this was separate; now we use restic repo
-	case "RCLONE_TRANSFERS":
-		c.CloudSync.Transfers = parseInt(value, c.CloudSync.Transfers)
-	case "RCLONE_RETRIES":
-		c.CloudSync.Retries = parseInt(value, c.CloudSync.Retries)
-	case "RCLONE_BANDWIDTH":
-		c.CloudSync.Bandwidth = value
-	}
-}
-
 // Validate checks that required configuration values are set
 func (c *Config) Validate() error {
 	var errors []string
 
 	if c.Docker.StacksDir == "" {
-		errors = append(errors, "DOCKER_STACKS_DIR (or BACKUP_DIR) not configured")
+		errors = append(errors, "DOCKER_STACKS_DIR not configured")
 	} else if _, err := os.Stat(c.Docker.StacksDir); os.IsNotExist(err) {
 		errors = append(errors, fmt.Sprintf("Docker stacks directory does not exist: %s", c.Docker.StacksDir))
 	}
