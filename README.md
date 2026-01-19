@@ -169,12 +169,16 @@ TRANSFERS=4
 
 ## Prerequisites
 
+> **Note:** The installation commands below are for Debian-based distributions (Ubuntu, Debian, etc.) using the `apt` package manager. For other distributions, use your system's package manager or install from source.
+
 ### Required: Restic
 
 Restic is the backup engine that creates deduplicated, encrypted snapshots.
 
+📖 **Documentation:** [restic.readthedocs.io](https://restic.readthedocs.io/)
+
 ```bash
-# Install restic
+# Install restic (Debian/Ubuntu)
 sudo apt-get install restic
 
 # Initialize your restic repository (first time only)
@@ -193,6 +197,7 @@ restic -r /path/to/your/restic-repo snapshots
 ### Required: Docker
 
 ```bash
+# Debian/Ubuntu
 sudo apt-get install docker.io docker-compose-v2
 ```
 
@@ -200,8 +205,10 @@ sudo apt-get install docker.io docker-compose-v2
 
 Rclone enables Stage 2 (upload) and Stage 3 (restore) cloud operations.
 
+📖 **Documentation:** [rclone.org/docs](https://rclone.org/docs/)
+
 ```bash
-# Install rclone
+# Install rclone (Debian/Ubuntu)
 sudo apt-get install rclone
 
 # Configure a cloud remote (interactive wizard)
@@ -271,6 +278,8 @@ The tool automatically discovers Docker stacks in your `DOCKER_STACKS_DIR`. You 
 4. Navigate to your Docker stack directory (must contain `docker-compose.yml`)
 5. Press **A** to add the current directory
 
+Alernatively, manually add full paths to directories containing docker compose files to your dirlist file. See below. 
+
 **File picker controls:**
 - `↑/↓` - Navigate file list
 - `Enter` - Enter directory
@@ -293,7 +302,8 @@ External paths are marked with `[EXT]` in the directory list.
 
 ### Dirlist File Format
 
-The `dirlist` file stores your backup selections:
+The `dirlist` file stores your backup selections. 
+This file is auto-generated/updated when you use the directory management tool in the TUI:
 
 ```ini
 # Discovered directories (relative to DOCKER_STACKS_DIR)
